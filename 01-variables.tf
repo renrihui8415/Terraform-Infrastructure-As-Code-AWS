@@ -231,3 +231,16 @@ variable "yourownIP" {
   default = "xx.xx.xx.xx/32"
   sensitive = true
 }
+#============================================================
+# for cloudfront, we need one provider other than default
+# as AWS requires us-east-1 to be the only region for resources of cloudfront
+provider "aws" {
+  alias  = "here is the name for another provider"
+  region = "us-east-1"
+}
+#============================================================
+#below is for the bucket for domain_name:
+locals  {
+  bucket_name_for_web    = "here is the bucket name for the website"
+}
+
