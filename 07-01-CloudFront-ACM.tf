@@ -1,3 +1,7 @@
+# below is the complete process creating certificates/ Rout53 hosted zone/ Route53 records
+# as dicussed in the file "04-Route53.tf", 
+# it depends if we choose terraform to build these or we manually build in the AWS console.
+
 #1 to create cert for CloudFront with ACM
   #1.1 to create cert and choose validation with DNS 
   #1.2 to create R53 hosted zone for the domain name if necessary,
@@ -57,7 +61,6 @@ resource "aws_route53domains_registered_domain" "update_domain_ns" {
     }
   }
 }
-
 */
 #=============================================================
 #1.3 to create r53 record
@@ -99,7 +102,7 @@ data "aws_route53_zone" "example" {
 
 resource "aws_route53_record" "example" {
   zone_id = data.aws_route53_zone.example.zone_id
-  name    = "${local.domain_name}"
+  name    = "${local.domain_name_cf}"
   type    = "A"
 
   alias {

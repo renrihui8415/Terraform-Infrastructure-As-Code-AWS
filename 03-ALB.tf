@@ -5,7 +5,7 @@
 #5 #!! be careful when to create cross zone ALB (mapping subnets)
 #====================================================
 #to create the target group for the ELB-->ALB
-resource "aws_lb_target_group" "alb-web_ec2s" {
+resource "aws_lb_target_group" "example" {
   name     = "${local.prefix}-target-group-alb"
   port     = 80
   protocol = "HTTP"
@@ -44,26 +44,11 @@ resource "aws_lb_target_group" "alb-web_ec2s" {
 # as we only need the sg to open port 80.
 # The sg for EC2 instance has more inbound rules than port 80,
 # hence, not safe to share SG betwwen ALB and EC2.
+
 resource "aws_security_group" "lb_sg" {
   name        = "${local.prefix}-securitygroup-alb"
   description = "intended for alb"
   vpc_id      = aws_vpc.web-ec2.id
-  ingress {
-    description      = "Traffic to ALB"
-    from_port        = 443
-    to_port          = 443
-    protocol         = "tcp"
-    cidr_blocks      = [var.yourownIP]
-    # for testing, only your own IP is accepted
-    # reason: security
-  }
-  ingress {
-    description      = "Traffic to ALB"
-    from_port        = 80
-    to_port          = 80
-    protocol         = "tcp"
-    cidr_blocks      = [var.yourownIP]
-  }
   egress {
     from_port        = 0
     to_port          = 0
@@ -77,7 +62,40 @@ resource "aws_security_group" "lb_sg" {
   }
 }
 
-resource "aws_lb" "alb-web_ec2s" {
+# the cidr_blocks in the SG:
+    # cidr_blocks["0.0.0.0/0"] means anywhere in the internet.
+    # it's OK only if we wish the website can be accessible worldwide.
+    # This project adds cloudfront in front of ALB 
+    # for the sake of security, we wish ALB can only be accessed by cloudfront
+    # hence, the cidr_blocks need to be the ip ranges of cloudfront only
+    # the file of "ip-ranges.json" can be downloaded from AWS website
+    # get all the ips ranges from it and put into ALB's SG is one option. 
+    # If the ip ranges from the json file outnumber 60,
+    # we need to divide them into more than one part.
+    # What's more, the ip ranges change constantly. We need to update the cidr blocks frequently.
+    # Another way is to use AWS managed prefix list, AWS gethered all their ip ranges for cloudfront and put
+    # them into a list. We only need to apply the list ID to SG, with no worries about Ip canges.
+# to use AWS managed prefix list.
+data "aws_ec2_managed_prefix_list" "cloudfront" {
+  filter {
+    name   = "prefix-list-name"
+    values = ["com.amazonaws.global.cloudfront.origin-facing"]
+  }
+}
+resource "aws_security_group_rule" "cf" {
+  type              = "ingress"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  #=====================================================
+  prefix_list_ids   = [data.aws_ec2_managed_prefix_list.cloudfront.id]
+  #=====================================================
+  security_group_id = aws_security_group.lb_sg.id
+  depends_on = [
+    aws_security_group.lb_sg
+  ]
+}
+resource "aws_lb" "example" {
   name                = "${local.prefix}-alb"
   #================================
   internal            = false
@@ -102,13 +120,13 @@ resource "aws_lb" "alb-web_ec2s" {
 }
 #====================================================
 output "DNS-name-alb" {
-  value              = aws_lb.alb-web_ec2s.dns_name
+  value              = aws_lb.example.dns_name
 }
 #====================================================
 # create 2 listeners for HTTP and HTTPS
 # redirect HTTP to HTTPS within HTTP listener
 resource "aws_lb_listener" "redirect_http_to_https" {
-  load_balancer_arn = aws_lb.alb-web_ec2s.arn
+  load_balancer_arn = aws_lb.example.arn
   port              = "80"
   protocol          = "HTTP"
   default_action {
@@ -157,20 +175,20 @@ resource "aws_lb_listener" "redirect_http_to_https" {
 
 # after we get cert ready to use:
 # find the cert's arn
-data "aws_acm_certificate" "issued" {
-  domain   = "${local.domain_name}"
+data "aws_acm_certificate" "alb" {
+  domain   = "${local.domain_name_alb}"
   statuses = ["ISSUED"]
 }
 resource "aws_lb_listener" "https" {
-  load_balancer_arn  = aws_lb.alb-web_ec2s.arn
+  load_balancer_arn  = aws_lb.example.arn
   port              = "443"
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-2016-08"
-  certificate_arn = data.aws_acm_certificate.issued.arn
+  certificate_arn = data.aws_acm_certificate.alb.arn
   
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.alb-web_ec2s.arn
+    target_group_arn = aws_lb_target_group.example.arn
   }
   lifecycle {
     create_before_destroy = true
@@ -178,7 +196,23 @@ resource "aws_lb_listener" "https" {
 }
 # after the lb is created, a DNS name will be provided
 # through the DNS, we can connect to the website later when 
-# ASG is created successfully with ALB's target group
+# ASG is created successfully with ALB's target group.
+# But this DNS name provided for alb won't be used for internet users
+# we will use a subdomain (like alb.your.domain.com) and create a record in r53
+resource "aws_route53_record" "alb" {
+  zone_id = data.aws_route53_zone.example.zone_id
+  name    = "${local.domain_name_alb}"
+  type    = "A"
+  #ttl is omitted as ttl will be 60 in this situation
+  
+  alias {
+    name                   = aws_lb.example.dns_name
+    zone_id                = aws_lb.example.zone_id
+    evaluate_target_health = true
+  }
+}
+# this domain name will be used for cloudfront later
+
 
 # we can add more rules for the listener
 # eg.Weighted Forward action, Fixed-response action

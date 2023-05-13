@@ -226,7 +226,7 @@ output "public_subnets_for_t3" {
   value=local.public_subnets_sec
 }
 #============================================================
-# below is your own IP for the dev environment:
+# below is your own IP for the testing environment:
 variable "yourownIP" {
   default = "xx.xx.xx.xx/32"
   sensitive = true
@@ -239,8 +239,100 @@ provider "aws" {
   region = "us-east-1"
 }
 #============================================================
+locals {
+  domain_name="example.com"
+}
+locals {
+  domain_name_alb="alb.example.com"
+}
+locals {
+  domain_name_cf="cf.example.com"
+  domain_name_cf_s3="cfs3.example.com"
+}
+locals {
+  domain_name_subdomain_s3="www.example.com"
+}
+#============================================================
 #below is for the bucket for domain_name:
 locals  {
-  bucket_name_for_web    = "here is the bucket name for the website"
+  bucket_name_for_web    = "www.${local.domain_name}"
 }
-
+#============================================================
+#below is for SQS
+variable "sqs_name" {
+  type=string
+  default = "s3-sqs-lambda" 
+}
+variable "dlq_name" {
+  type = string
+  default = "sqs-lambda-dlq"
+}
+#============================================================
+#below is for sns:
+variable "sns_topic_name" {
+  type = string
+  description = "sns topic name"
+  default = "here is the word you define as success or any topic for yes"
+}
+locals {
+  sns_topic_name="${local.prefix}-topic-${var.sns_topic_name}"
+}
+variable "sns_topic_name2" {
+  type = string
+  description = "sns topic name2"
+  default = "here is the word you define as failure or any topic for no"
+}
+locals {
+  sns_topic_name2="${local.prefix}-topic-${var.sns_topic_name2}"
+}
+variable "sns_topic_sqs_alert" {
+  type = string
+  description = "sns topic sqs_alert"
+  default = "dead-letter-queue"
+}
+locals {
+  sns_topic_sqs_alert="${local.prefix}-topic-${var.sns_topic_sqs_alert}"
+}
+locals {
+  sns_topics_name=[local.sns_topic_name,local.sns_topic_name2,local.sns_topic_sqs_alert]
+}
+#output "sns_topics_name" {
+  #value=local.sns_topics_name
+#}
+#get the topic ARNs for sns topics
+locals {
+  topic_arn_on_success=join(":",["arn:aws:sns","${local.aws_region}","${local.AccountID}","${local.sns_topic_name}"])
+  topic_arn_on_failure=join(":",["arn:aws:sns","${local.aws_region}","${local.AccountID}","${local.sns_topic_name2}"])
+  topic_arn_on_dlq=join(":",["arn:aws:sns","${local.aws_region}","${local.AccountID}","${local.sns_topic_sqs_alert}"])
+}
+locals {
+  sns_topics_arn=[local.topic_arn_on_success,local.topic_arn_on_failure,local.topic_arn_on_dlq]
+}
+#output "sns_topics_arn" {
+  #value=local.sns_topics_arn
+#}
+variable "sns_subscription_email_address_list" {
+  type = string
+  description = "List of email addresses as string(space separated)"
+  default = "1234@example.com"
+}
+variable "sns_subscription_email_address_list2" {
+  type = list(string)
+  description = "List of email addresses as string(space separated)"
+  default = ["aaa@gmail.com", "bbb@gmail.com","ccc@outlook.com"]
+}
+variable "sns_subscription_protocol" {
+   type = string
+   default = "email"
+   description = "SNS subscription protocal"
+ }
+#============================================================
+#below is the layer for lambda function:
+variable "AWSSDKPandas" {
+  description = "part of the name of aws managed layer version"
+  default = ":336392948345:layer:AWSSDKPandas-Python39:8"
+}
+locals {
+  AWSSDKPandas=join("",["arn:aws:lambda:","${local.aws_region}","${var.AWSSDKPandas}"])
+}
+#============================================================

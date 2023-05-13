@@ -182,26 +182,19 @@ resource "aws_security_group_rule" "outbound-rules" {
 
   security_group_id = aws_security_group.ec2_security_group_public.id
 }
-# to open port 80 for HTTP
-resource "aws_security_group_rule" "test_web_server" {
-  type              = "ingress"
-  from_port         = 80
-  to_port           = 80
-  protocol          = "tcp"
-  cidr_blocks       = [var.myownIP]
-  
-  security_group_id =aws_security_group.ec2_security_group_public.id
+# to open port 80 for HTTP for ALB only
+# the inbound rule will be done in the next .tf file 
 
-}
 # to open port 443 for HTTPs
 #if we only allow ALB to connect to EC2, there is no need for Port 443
 # ALB will securely connect to EC2 in the target group by port 80
+#below is just for testing
 resource "aws_security_group_rule" "production_web_server" {
   type              = "ingress"
   from_port         = 443
   to_port           = 443
   protocol          = "tcp"
-  cidr_blocks       = [var.myownIP]
+  cidr_blocks       = [var.yourownIP]
 
   security_group_id =aws_security_group.ec2_security_group_public.id
 

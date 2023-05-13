@@ -10,7 +10,7 @@ locals {
 }
 
 # since cloudfront is used in front of S3
-# s3 doesn't need to be public and its internet settings can be omitted
+# s3 doesn't need to be public and its internet and website settings can be omitted
 #============================================================
 #1 to create s3 bucket to store state files
     #1.1 to create s3 bucket for the web (with CORS settings if any)
@@ -27,6 +27,10 @@ locals {
     #3.2 to create s3 bucket policy
     #3.3 to attach the policy to s3 
 #4 to upload another index.html to the root/main bucket if any
+#5 to configure s3 to trigger SQS
+  # later sqs will trigger lambda,
+  # once a new file uploads to s3, lambda will invalidate the file in cache
+
 #============================================================
 #1 below is to create s3 for storing files like index.html
 resource "aws_s3_bucket" "example" {
@@ -37,8 +41,9 @@ resource "aws_s3_bucket" "example" {
     Environment = "Dev"
   }
 }
-# below is add CORS if neccessary
-  # the root bucket will 'translate' ALL web requests to one request ["https://www.${local.domain_name}"]
+# as the project won't apply root bucket, some of the below resources are 
+# commented out for reference only.
+# below is to add CORS
 /*
 resource "aws_s3_bucket_cors_configuration" "example" {
   bucket = aws_s3_bucket.example.id
@@ -57,8 +62,7 @@ resource "aws_s3_bucket_cors_configuration" "example" {
 }  
 
 # below is to host web on s3
-# Cloudfront is applied in this project
-# below is just for reference
+# Cloudfront is applied in this project, s3 won't need this setup.
 resource "aws_s3_bucket_website_configuration" "example" {
   bucket = aws_s3_bucket.example.id
 
@@ -75,7 +79,8 @@ resource "aws_s3_bucket_versioning" "example"{
     }
 }
 # below is to create s3 bucket policy
-# it can only be updated after cloudfront is created
+# after we create the cloudfront, AWS will automatically create a policy for s3.
+# here, we use terraform to create the same policy
 data "aws_iam_policy_document" "example" {
   statement {
 		actions = ["s3:GetObject"]
@@ -105,17 +110,21 @@ resource "aws_s3_bucket_policy" "example" {
   ]
 }
 
-#2 below is to upload state files to the newly built s3 bucket
+#2 below is to upload website state files to the newly built s3 bucket
 resource "aws_s3_object" "upload_state_files" {
   for_each = fileset("./${local.state_file_folders}/", "**/*")
   bucket = aws_s3_bucket.example.id
   key = each.value
   source = "./${local.state_file_folders}/${each.value}"
   etag = filemd5("./${local.state_file_folders}/${each.value}")
-  content_type = lookup(local.mime_types, regex("\\.[^.]+$",lower(each.value)), null)
-  # text/html needs to be specified,
-  # otherwise index.html will be treated as attachment
+  content_type = lookup(local.content_types, regex("\\.[^.]+$",lower(each.value)), null)
+  # content type needs to be specified in s3 bucket
+  # otherwise all uploaded file will be treated as attachment
   # click on the file will not serve, but makes you download the file...
+  # we wish the files to serve as website files. a json file of content_types is one of the solutions.
+  # the terraform will lookup the state file's extension in the file, and make sure 
+  # after uploading, the content_type of "index.html" will be "text/html", not attachment.
+  
   # Note: convert all update files' extensions to be lower case!!!
   # those in upper case won't be properly retrieved in the json document
   depends_on = [ 
@@ -127,3 +136,15 @@ output "content_type" {
   value=[for key in aws_s3_object.upload_state_files: key.content_type]
 }
 
+#5 S3 to trigger SQS
+resource "aws_s3_bucket_notification" "example" {
+  bucket = aws_s3_bucket.example.id
+  queue {
+    id        = aws_sqs_queue.example.id
+    queue_arn = aws_sqs_queue.example.arn
+    events    = ["s3:ObjectCreated:*"]
+  }
+  depends_on = [
+    aws_sqs_queue.example
+  ]
+}
