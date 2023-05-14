@@ -1,8 +1,24 @@
 
 # This is for the project to create my own website. I share this so as to keep track of the website building.
 
-#1 The website will be based on AWS resources (VPC, ALB, Route53, ASG, S3...)
-#2 All AWS resources used for website will be deployed by Terraform to achieve full automation.
+# Architecture overview
+Please refer to _Architecture_Diagram_Website_with_AWS.png
 
-** The terraform codes will be added/updated at least once a day. 
+# aws-website building
+The website is based on AWS resources (VPC, ALB, Route53, ASG, S3, Cloudfront, ACM, WAF, SQS, SNS, CloudWatch, IAM...)
+
+## Requirements
+* AWS CLI (with at least one profile)
+* Terraform (website building automation)
+
+## Deploying
+terraform init
+terraform validate
+terraform plan
+terraform apply
+terraform destroy
+
+
+
+
 
