@@ -78,10 +78,13 @@ resource "aws_wafv2_web_acl" "example" {
   # then WAF will forward/allow the request
 #==============================================================
   dynamic "rule" {
-    for_each = toset(var.rules)
+    for_each = var.rules
     content {
       name = rule.value.name
-      priority = (index(var.rules, each.value) + 1)
+      priority = rule.key +1
+      # if for_each refers to a list
+      # dynamic var.key = index
+      # priority can be automatically added according to its order in var.rules
       override_action {
         #count {}
           # if we choose count, WAF only count matching requests
