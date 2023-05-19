@@ -47,9 +47,11 @@ to check the status of the application.
 #============================================================
 #2.1 below is to create SG for ALB
 # If we put cloudfront in front of ALB
-# ALB should only accept ips of CF
+# ALB should accept ips of CF only
 # below is to get AWS managed prefix list for all cloudfront edge servers
 # the list collects ip ranges of all cloudfront
+# Using the ip_range.json downloaded from AWS website means we have to 
+# update the ip ranges frequently, as the ip ranges for AWS cloudfront change with time.
 data "aws_ec2_managed_prefix_list" "cloudfront" {
   filter {
     name   = "prefix-list-name"
@@ -73,8 +75,11 @@ resource "aws_security_group" "alb" {
     Environment = var.environment
   }
 }
-#below is to open port 443 to cloudfront
-#internet users won't be able to connect ALB
+#Below is to open port 443 to cloudfront
+#I use https between Cloudfront and ALB for security reason
+#The "source" in security group is the id of cloudfront prefix list.
+#Thanks to AWS, we don't need to add every single ip range of cloudfront worldwide
+# and make too many security group rules....
 resource "aws_security_group_rule" "cf_to_alb" {
   type              = "ingress"
   from_port         = 443
@@ -91,6 +96,9 @@ resource "aws_security_group_rule" "cf_to_alb" {
 #2.2 below is to add inbound/outbound rules so that ECS and ALB
 # can communicate with each other
 # port 80 is not safe , change to 443 in production environment with certificates for ECS
+# I have concerns that resources in VPC can be attacked from outside.
+# Someone may have different practices and apply port 80 between ALB and ECS.
+# It did increase the burdon for ECS if it needs to encrypt/decode data.
 
 resource "aws_security_group_rule" "ecs_to_alb" {
   type              = "ingress"
@@ -98,8 +106,6 @@ resource "aws_security_group_rule" "ecs_to_alb" {
   to_port           = 80
   protocol          = "tcp"
   #=====================================================
-  #ECS cannot be reached directly over HTTP 
-  #but only via the load balancer
   source_security_group_id =aws_security_group.ecs_service.id
   #=====================================================
   security_group_id = aws_security_group.alb.id
@@ -114,7 +120,6 @@ resource "aws_security_group_rule" "alb_to_ecs" {
   to_port         = 80
   protocol        = "tcp"
   source_security_group_id = aws_security_group.alb.id
-
   security_group_id = aws_security_group.ecs_service.id
   depends_on = [
     aws_security_group.ecs_service
@@ -184,19 +189,6 @@ resource "aws_lb_listener_rule" "only_forward_from_cf" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.alb_ecs.arn
   }
-  #http_header only guarantees cf's own domain name( the one assigned by aws, and end with cloudfront.net)
-  #are recognized by ALB,
-  #we won't use this aws assigned domain name for cf
-  # we wish to use cf alternate domain with Route 53 record instead
-  # alb should answer to this domain name 
-  # the first version is to use ALB to check for this domain name as host header as above
-  # but it does not work... now try to use WAF to filter request that has cf.voirlemonde.link as host header
-  condition {
-    http_header {
-      http_header_name = "${local.cf_custom_header}"
-      values = ["${local.cf_custom_header_value}"]
-    }    
-  }
 }
 #============================================================
 #5 to create Route53 record for ALB
@@ -216,7 +208,7 @@ resource "aws_route53_record" "alb" {
     evaluate_target_health = true
   }
 }
-# this subdomain will be used for cloudfront's origin domain name later
+# this subdomain will be used as cloudfront's origin domain name later
 #============================================================
 
 

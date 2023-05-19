@@ -1,3 +1,5 @@
+#### Below is to use lambda function (in Python) 
+#### to check and initiate Cloudfront Invalidation
 from __future__ import print_function
 import boto3
 import os
