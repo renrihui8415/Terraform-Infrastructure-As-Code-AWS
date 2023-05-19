@@ -80,7 +80,21 @@ output "all_azs" {
 #Note: 
 # instance types are not supported in all AZs in aws
 # need to check if desired instance type(s) are supported 
-# otherwise, error throws when creating ASG (autoscaling group) 
+# otherwise, error throws when creating ASG (autoscaling group)
+
+# As ECS was added into this project recently,
+# VPC, subnets and AZ need modifying.
+# Not all regions support ECS with a fargate launch type. 
+# unfortunately, Terraform does not have a managed resource to get all those AZ that support fargate
+# There is no way but manually add those AZs according to AWS docs.
+#https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate-Regions.html
+locals {
+  az_for_fargate=["first supporting AZ","second supporting AZ"]
+}
+
+# below is for EC2 ASG, ECS with EC2 launch type
+# just for reference
+/*
 locals {
   instance_type="t2.micro"
   instance_type_alternative="t3.micro"
@@ -143,6 +157,8 @@ locals {
 output "az_that_support_t3_only" {
   value=local.az_that_support_t3_only
 }
+*/
+
 #============================================================
 # next is to build subnets in supported AZs respectively 
 # the cidr should be in the format of 
@@ -336,3 +352,13 @@ locals {
   AWSSDKPandas=join("",["arn:aws:lambda:","${local.aws_region}","${var.AWSSDKPandas}"])
 }
 #============================================================
+#### Cloudfront -- Custom Header ####
+locals {
+  cf_custom_header ="some characters"
+  cf_custom_header_value="some characters"
+}
+# these values can be stored in secret manager
+#### ALB -- Target Group -- Health Check ####
+locals {
+  tg_health_check_path="/"
+}

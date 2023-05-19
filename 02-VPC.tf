@@ -1,7 +1,7 @@
 
 #1 to create VPC
 #2 to create subnets under the VPC
-#3 (if we need EC2s have internet connection)
+#3 (if we need EC2 internet connection)
   #to create internet gateway and attach it to VPC
 
   # if not, we'd better create AMI with necessary updates and installs
