@@ -5,13 +5,12 @@ locals {
   container_image_1st       = "username/image_from_dockerhub:latest"
   container_image_2nd       = "username/image_from_dockerhub:latest"
 }
-
 #============================================================
-#1 to create VPC with public/private subnets in each AZ (in another file)
+#1 to create VPC with public/private subnets in each AZ (in the file "08-01-ECS-VPC.tf")
   # public subnets --> one route table --> one internet gateway
   # private subnets--> two route tables-->two nat gateway-->one internet gateway
 #2 to create ECR where Docker images are kept (or docker hub)
-#3 to create ECS Cluster --> Service --> task definition --> Containers
+#3 to create ECS Cluster --> task definition --> Service --> Containers
     # for ECS cluster
     #3.1 to create ECS cluster
     #3.2 to create Task definition
@@ -19,8 +18,8 @@ locals {
       #3.2.2 to create role 1 --> Task Role
       #3.2.3 to create role 2 --> Execution Role
     #3.4 to create ECS service
-    #3.5 to create Security Group (in the file of VPC)
-#4 to create ALB (in another file)
+    #3.5 to create Security Group (in the file "08-01-ECS-VPC.tf")
+#4 to create ALB (in the file "08-02-ECS-ALB.tf")
 #5 to set up Auto Scaling 
 #6 Cloud Watch
 #============================================================
@@ -54,7 +53,6 @@ resource "aws_ecr_lifecycle_policy" "example" {
   })
 }
 # the above is to keep only 10 images in the repo
-
 #============================================================
 #3 below is to create ECS Cluster:
 # ECS Cluster contains
@@ -93,9 +91,12 @@ resource "aws_ecs_cluster" "example" {
 ### eee) Apart from the above, based on task defintion, a task role should be specifically created
     # for example, to allow task access S3.
 #============================================================
-#3.2.1 to create a task definition, a task role is needed
-# This will allow the task access to other AWS resources 
-# based on the task definition
+#3.2.1 to create a task definition
+# EC2 or Fargate? It's a question...
+# For this project, to have the least operation overhead, I chose Fargate
+# Fargate is the serverless solution where we don't need to manage EC2 on our own.
+# however, if you chose ECS on EC2, or EC2 with ASG behind ALB
+# the settings for EC2 with ASG can be found in the files "05-ASG.tf"
 resource "aws_ecs_task_definition" "example" {
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
