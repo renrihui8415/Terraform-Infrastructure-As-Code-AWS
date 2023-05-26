@@ -182,21 +182,26 @@ variable "cidr_first_half" {
 #and determines the max number of subnets that should be created 
 
 locals {
-    cidr_c_private_subnets  = 20
-    #private subnet will start from 20
-    # which is xxx.xx.20.0/24
-    cidr_c_private_subnets_2  = 200
-    #the second subnets is for the secondary instance type
-
+  
     cidr_c_public_subnets   = 10
     #public subnets will be xxx.xx.10.0/24,
     #                       xxx.xx.11.0/24...
     #for 2nd instance type:
     #public subnets will be xxx.xx.100.0/24,
-    cidr_c_public_subnets_2 =100
+    cidr_c_public_subnets_2 =20
+
+    cidr_c_private_subnets  = 30
+    #private subnet will start from 30
+    # which is xxx.xx.30.0/24
+    cidr_c_private_subnets_2  = 40
+    #the second subnets is for the secondary instance type
+
+    cidr_c_database_subnets = 50
+    # the private subnets for database will start from 50
+
 
     max_private_subnets     = 3
-    #multiple subnets in multiple AZs to achieve high availability
+    max_database_subnets    = 3
     max_public_subnets      = 3
 }
 
@@ -362,3 +367,24 @@ locals {
 locals {
   tg_health_check_path="/"
 }
+#============================================================
+#### RDS Secret ####
+# first to manually create a key pair in secrets manager
+# i didn't use secret format for RDS 
+# i used general format (key pair) in the Secrets Manager
+# find the secret using terraform
+data "aws_secretsmanager_secret_version" "mysql-creds" {
+  # Fill in the name you gave to your secret
+  secret_id = "here is the name you give to your key pair"
+}
+locals {
+  mysql-creds = jsondecode(
+    data.aws_secretsmanager_secret_version.mysql-creds.secret_string
+  )
+}
+# from the secret_string, the terraform can create rds using your username/password pair
+# later you can use this username and password to log in your rds
+locals {
+  mysql-creds-arn =data.aws_secretsmanager_secret_version.mysql-creds.arn
+}
+# you can also get the arn for the secret

@@ -13,12 +13,15 @@ locals {
 #3 to create ECS Cluster --> task definition --> Service --> Containers
     # for ECS cluster
     #3.1 to create ECS cluster
+    # this project i used DockerHub
+    # codes on Docker Image building and pushing, 
+    # please refer to git@github.com:renrihui8415/DockerImage.git
     #3.2 to create Task definition
       #3.2.1 to create Task Definition
       #3.2.2 to create role 1 --> Task Role
       #3.2.3 to create role 2 --> Execution Role
     #3.4 to create ECS service
-    #3.5 to create Security Group (in the file "08-01-ECS-VPC.tf")
+    #3.5 to create Security Group
 #4 to create ALB (in the file "08-02-ECS-ALB.tf")
 #5 to set up Auto Scaling 
 #6 Cloud Watch
