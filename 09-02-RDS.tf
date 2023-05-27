@@ -33,11 +33,13 @@ resource "aws_security_group" "rds" {
   vpc_id = aws_vpc.web_vpc.id
   /*
   # to open port 3306 for all ip source is not recommended
+  # if in the dev environment, we wish RDS to be public accessible
+  # add your own ip address for inbound rule
   ingress {
     from_port       = 3306
     to_port         = 3306
     protocol        = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [yourownIP]
   }
   */
   egress {

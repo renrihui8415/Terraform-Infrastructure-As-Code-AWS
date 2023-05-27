@@ -261,6 +261,21 @@ resource "aws_route_table_association" "private_rds" {
   subnet_id      = element(local.private_database_subnets.*, count.index)
   route_table_id = element(aws_route_table.rds.*.id, count.index)
 }
-
+# Note: in development environment,
+# we may need RDS publicly accessible
+# make sure 
+# aaa)RDS have a subnet group with public subnets
+# the aws subnets become public when they are associated with route tables which are connected to internet gateway
+# we can't apply NAT gateway for 2 reasons. RDS' public access doesnot go in this way. 
+# NAT gateway is one way direction only.  
+# bbb) RDS security group accept connection from your IP address (check "what is my IP" online)
+# ccc) if the security group is created by us ,not by aws, there is no default outbound rule in the security group
+# which means, the traffic coming from RDS can't reach us, do add or check the outbound rule in SG
+# all traffic from RDS can go anywhere on the internet
+# ddd) modify RDS, and set it as 'public accessible'
+# eee) download/install a database tool online. build the connection using the parameters in RDS aws console.  
+# The database tools are so many. MySql Workbench is recommended by AWS for MySql database. 
 #===========================================================
+
+
 
