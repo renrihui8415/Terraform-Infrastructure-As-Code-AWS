@@ -385,6 +385,8 @@ locals {
     }
   }]
 }
+# Note: if you need to set up different containers for one task, just combine their container definitions
+# into one under the same container definition json format.
 output "task_image" {
   value=local.task_image_1
 }

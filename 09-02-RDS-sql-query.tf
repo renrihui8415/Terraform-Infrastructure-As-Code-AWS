@@ -67,7 +67,10 @@ aws rds-data execute-statement \
 # of course, we could achieve the same by installing database tool, connecting to mySql in the cloud,
 # run sql queries in the tool to set up and maintain database. 
 # but if we require a full automation, we need to find a way for terraform to complete it. 
-# we should free our hands and brain for something more insightful. 
+# Also, rds needs to be public accessible to use MySql command line
+# if we put rds in the private subnets, we can use ECS to init the DB.
+# lambda can't be used as boto3 doesnot support to execute multiple SQL statements at one time
+# as we know, Procedures are more than one line.
 locals {
   filepath="${path.module}/sql_statement/init.sql"
 
