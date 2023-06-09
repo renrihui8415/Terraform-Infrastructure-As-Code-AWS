@@ -1,4 +1,4 @@
-# This is for the project to create my own website. I share this so as to keep track of the website building.
+# This is for the project to create a website using AWS, Python, Java, and SQL.
 
 # Architecture overview
 
