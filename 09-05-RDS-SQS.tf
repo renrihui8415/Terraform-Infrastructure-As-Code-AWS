@@ -1,0 +1,1 @@
+# The SQS setting is the same as file '06-02-s3-SQS' except that it triggers leader lambda for Data ETL and Analysis.

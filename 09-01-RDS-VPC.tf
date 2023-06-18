@@ -6,7 +6,9 @@
 
 #1 to create VPC
 #2 to create private/public subnets under the VPC
-  # 2.1 public subnets --> NAT Gateway, ALB
+  # 2.1 public subnets --> (NAT Gateway), ALB
+    # Note: NAT gateway is not inexpensive, I won't use it in the project.
+    # the file will just include NAT as templates
   # 2.2 private subnets --> ECS (fargate)
   # 2.3 private subnets --> RDS (mySql)
    # 2.3.1 to create private subnet in each AZ for RDS

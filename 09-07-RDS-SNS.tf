@@ -1,0 +1,1 @@
+# The SNS setting is the same as file '06-05'

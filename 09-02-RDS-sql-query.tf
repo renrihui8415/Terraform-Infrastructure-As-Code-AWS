@@ -97,3 +97,21 @@ resource "null_resource" "sql_statement" {
   }
 }
 
+# in the production environment, this website won't make mysql to be public accessible
+# but we need to access the mysql as admin or developer
+# the solution is to upload these .sql files to s3 backup bucket 
+# lambda will trigger ECS fargate to run .sql files in container
+# Note: here, RDS for MySQL in aws can't run Procedures line by line
+# we have few choices to excute the whole .sql file
+# RDS for mySQL accept to execute queries line by line,
+# but this might cause table lock issue.
+# more details will be shared in my repository of python for lambda.
+data "aws_s3_bucket" "backup-bucket" {
+  bucket = var.bucket_for_backup_sourcedata
+}
+resource "aws_s3_object" "upload_sql_files" {
+  for_each = fileset("./${local.filepath}/", "**/*")
+  bucket = data.aws_s3_bucket.backup-bucket.id
+  key = "path/to/.sql/file/${each.value}"
+  source = "./${local.filepath}/${each.value}"
+}

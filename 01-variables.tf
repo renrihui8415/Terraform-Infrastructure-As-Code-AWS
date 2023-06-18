@@ -388,3 +388,6 @@ locals {
   mysql-creds-arn =data.aws_secretsmanager_secret_version.mysql-creds.arn
 }
 # you can also get the arn for the secret
+
+# in this project, i use another user for detailed task.
+# the master user won't be used for daily work.
