@@ -1,8 +1,19 @@
 #=============================================================================================
-#Below are terraform to build website based on AWS
+#Below are terraform to build website in the AWS Cloud
 #=============================================================================================
+#Terraform
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0.0"
+    }
+  }
 
-#The region will be obtained according to var.environment
+  required_version = ">= 1.2.5"
+}
+###########################################################
+#the region will be obtained according the var.environment
 #development, qa, staging, production
 provider "aws" {
   profile = "default"
@@ -22,7 +33,7 @@ locals {
 #===========================================================
 # Below is to configure the backend for terraform state file
 # The other settings (e.g., bucket, region) are stored in backend.hcl 
-# Run 'terraform init -backend-config=backend.hcl'
+# Run 'terraform init -backend-config=backend.hcl' when setup
 terraform {
   backend "s3" {
     bucket         = "here is the bucket name"

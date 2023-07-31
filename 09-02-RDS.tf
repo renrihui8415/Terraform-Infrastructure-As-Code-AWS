@@ -1,5 +1,5 @@
 #1 to create private subnets for RDS (mySql)
-  # this project will apply master rds with read replicas in multi-AZ
+  # this project will apply RDS Multi-AZ and Read Replica
   # 1.1 this requires a RDS to be multi AZ instance 
   #(can be achieved by turn on the feature of "enable multi-AZ")
   # 1.2 to create private subnets in all AZs in the target region
@@ -22,24 +22,16 @@
     # Note: 
     # NAT gateway and VPC Endpoints are not free. Needs to carefully weigh between cost and high availability
 
-  # Note: applying "multi-az" means more coding efforts to direct traffic of reporting/read
+  # Note: applying "replica" means more coding efforts to direct traffic of reporting/read
   # to read replica
 
 #2 to create SG for mySql
   # 2.1 to create sg for rds
-  # 2.2 to set up SGs for rds and ecs for communication
+  # 2.2 to set up SGs for rds and ecs for communication (RDS.tf file)
 #3 to create RDS (mySql)
+#4 to create replica
 #============================================================
-
 #2 below is to create sg for db
-/*
-data "aws_vpc" "web_vpc" {
-  filter {
-    name = "tag:Name"
-    values=["${local.prefix}-vpc"]
-  }
-}
-*/
 resource "aws_security_group" "rds" {
   name = "${local.prefix}-sg-rds"
   vpc_id = aws_vpc.web_vpc.id
@@ -64,60 +56,6 @@ resource "aws_security_group" "rds" {
   }
   */
 }
-
-#allow access between ecs and rds on port 3306
-resource "aws_security_group_rule" "ecs_to_rds" {
-  type              = "ingress"
-  from_port         = 3306
-  to_port           = 3306
-  protocol          = "tcp"
-  #=====================================================
-  source_security_group_id =aws_security_group.ecs_service.id
-  #=====================================================
-  security_group_id = aws_security_group.rds.id
-  depends_on = [
-    aws_security_group.rds
-  ]
-}
-resource "aws_security_group_rule" "rds_to_ecs" {
-  type            = "ingress"
-  from_port       = 3306
-  to_port         = 3306
-  protocol        = "tcp"
-  #=====================================================
-  source_security_group_id = aws_security_group.rds.id
-  #=====================================================
-  security_group_id = aws_security_group.ecs_service.id
-  depends_on = [
-    aws_security_group.ecs_service
-  ]
-}
-resource "aws_security_group_rule" "rds_to_ecs" {
-  type              = "egress"
-  from_port         = 3306
-  to_port           = 3306
-  protocol          = "tcp"
-  #=====================================================
-  source_security_group_id =aws_security_group.ecs_service.id
-  #=====================================================
-  security_group_id = aws_security_group.rds.id
-  depends_on = [
-    aws_security_group.rds
-  ]
-}
-resource "aws_security_group_rule" "ecs_to_rds" {
-  type            = "egress"
-  from_port       = 3306
-  to_port         = 3306
-  protocol        = "tcp"
-  #=====================================================
-  source_security_group_id = aws_security_group.rds.id
-  #=====================================================
-  security_group_id = aws_security_group.ecs_service.id
-  depends_on = [
-    aws_security_group.ecs_service
-  ]
-}
 #============================================================
 #3 below is to create RDS
 resource "aws_db_instance" "mysql" {
@@ -139,7 +77,7 @@ resource "aws_db_instance" "mysql" {
   # Read replica needs to edit connection strings for each read replica in coding.
 
   # there is another feature of RDS, multi-az,
-  # if it is true, the console will its secondary AZ, 
+  # if it is true, the console will create a Standby RDS in its secondary AZ, 
   # however, this secondary AZ is not on unless primary RDS becomes unavailable.
   # it is for Disaster recovery
   multi_az                = local.mysql_multi_az
@@ -187,7 +125,7 @@ locals {
   mysql_database_name           = "here is your database name, or more precisely, schema name in mysql"
   mysql_rds_user_name           = local.mysql-creds.username
   mysql_rds_password            = local.mysql-creds.password
-  mysql_parameter_group         = "default.mysql8.0"
+  mysql_parameter_group         = "default.mysql5.7"
   mysql_sg_ids                  = ["${aws_security_group.rds.id}"]
   mysql_subnet_group            = aws_db_subnet_group.rds.name
   mysql_skip_final_snapshot     = true

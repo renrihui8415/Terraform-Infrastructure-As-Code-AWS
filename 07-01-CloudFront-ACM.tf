@@ -1,5 +1,5 @@
 # below is the complete process creating certificates/ Rout53 hosted zone/ Route53 records
-# as dicussed in the file "04-Route53.tf", 
+# as dicussed in the file "05-Route53-(ALB).tf", 
 # it depends if we choose terraform to build these or we manually build in the AWS console.
 
 #1 to create cert for CloudFront with ACM

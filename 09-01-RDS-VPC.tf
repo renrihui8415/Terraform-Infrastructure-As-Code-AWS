@@ -1,4 +1,3 @@
-
 #### VPC #####
 # This file gathered all resources to build VPC for my website.
 # It added 'RDS' part comparing to 08-01-ECS-VPC.tf.
@@ -6,14 +5,13 @@
 
 #1 to create VPC
 #2 to create private/public subnets under the VPC
-  # 2.1 public subnets --> (NAT Gateway), ALB
-    # Note: NAT gateway is not inexpensive, I won't use it in the project.
-    # the file will just include NAT as templates
-  # 2.2 private subnets --> ECS (fargate)
-  # 2.3 private subnets --> RDS (mySql)
+  # 2.1 public subnets --> ALB
+  # 2.2 private subnets --> ECS
+  # 2.3 private subnets --> RDS
    # 2.3.1 to create private subnet in each AZ for RDS
    # 2.3.2 to create one subnet group including all private subnets
    # 2.3.3 later to attach this subnet group to RDS
+    # then the RDS can be connected from multi AZs through multi subnets
 #3 to create internet gateway and attach it to VPC
   #==============================================================
   # in this project the ECS farget task will be in private subnets
@@ -22,6 +20,7 @@
   # as we use farget, no worries to manage EC2 patching
   # an internet gateway makes sure services in public subnets can connect to internet
   # a nat gateway makes sure service in private subnets can connect to internet
+  # VPC Endpoint makes sure services in the VPC can connect to some of AWS Public Services
   #==============================================================
   #3.1 to create internet gateway
   #3.2 to create route table for internet gateway
@@ -35,7 +34,7 @@
   #4.3 to create "private" route tables for private subnets
     # the route tables will route traffic to NAT gateways
   #4.4 to associate private subnets to "private" route table
-#5 to create security group for RDS(in another file)
+#5 to create security group for RDS(in the next file)
 #==============================================================
 
 #1 below is to create vpc for the project:
@@ -65,8 +64,7 @@ tags = {
 #private subnet 2: xxx.xx.51.0/24 in AZ-1b 
 #(private subnet 3: xxx.xx.52.0/24 in AZ-1d)
 #============================================================
-# to create public subnets first
-# 
+# to create public subnets first for ALB
 resource "aws_subnet" "public_subnets" {
   count = "${length(local.az_for_fargate)}"
   
@@ -107,7 +105,7 @@ resource "aws_subnet" "private_subnets_for_rds" {
   vpc_id = "${aws_vpc.web_vpc.id}"
   cidr_block = "${lookup(var.cidr_ab, var.environment)}.${local.cidr_c_database_subnets+count.index}.0/24"
   availability_zone = "${local.availability_zones[count.index]}"
-  #map_public_ip_on_launch = true
+
   tags ={
     Name = "${local.prefix}-Private-rds"
   }
@@ -185,36 +183,43 @@ resource "aws_route_table_association" "public-subnets-route-to-internet" {
 
 #===========================================================
 #4 to create NAT gateway
+# if we choose computation systems (lambda in the VPC, EC2, ECS) with private subnets
+# we can use NAT for internet connection and S3 connection of course 
+# or, Gateway VCP Endpoint for connection to s3 by Amazon network (cheaper)
+# As this project applies VPC Endpoints, below method to create NAT is just an example
+
 #4.1 before creating NAT, eip(s) should be specified
 # each AZ need one NAT gateway to connect to internet (for high available)
 # we can reduce the cost by using less NAT gateways
 # each NAT gateway need creating in one public subnet
-resource "aws_eip" "nat_gateway" {
-  count=length(local.public_subnets)
-  domain = "vpc"
-  depends_on                = [
-    aws_internet_gateway.igw
-  ]
-}
-output "eip_for_private_subnets" {
-  value = aws_eip.nat_gateway[*].public_ip
-}
-#4.2 below is to create one NAT gateway per AZ
-# as ECS fargate does not support all AZ,
-# here, we create two NATs in two supporting AZs.
-resource "aws_nat_gateway" "main" {
-  count=length(local.public_subnets)
-  allocation_id = element(aws_eip.nat_gateway.*.id, count.index)
-  subnet_id     = element(local.public_subnets[*],count.index)
-  #each public subnet has one NAT gateway
 
-  # To ensure proper ordering, it is recommended to add an explicit dependency
-  # on the Internet Gateway for the VPC.
-  depends_on = [aws_internet_gateway.igw]
-  tags = {
-    Name="${local.prefix}-nat"
-  }
-}
+# resource "aws_eip" "nat_gateway" {
+#   count=length(local.public_subnets)
+#   domain = "vpc"
+#   depends_on                = [
+#     aws_internet_gateway.igw
+#   ]
+# }
+# output "eip_for_private_subnets" {
+#   value = aws_eip.nat_gateway[*].public_ip
+# }
+# #4.2 below is to create one NAT gateway per AZ
+# # as ECS fargate does not support all AZ,
+# # here, we create two NATs in two supporting AZs.
+# resource "aws_nat_gateway" "main" {
+#   count=length(local.public_subnets)
+#   allocation_id = element(aws_eip.nat_gateway.*.id, count.index)
+#   subnet_id     = element(local.public_subnets[*],count.index)
+#   #each public subnet has one NAT gateway
+
+#   # To ensure proper ordering, it is recommended to add an explicit dependency
+#   # on the Internet Gateway for the VPC.
+#   depends_on = [aws_internet_gateway.igw]
+#   tags = {
+#     Name="${local.prefix}-nat"
+#   }
+# }
+
 #============================================================
 #4.3 below is to create a "private" route table for private subnets
    #this private route table is to connect nat gateway
@@ -223,33 +228,34 @@ resource "aws_nat_gateway" "main" {
   #its different from the web-route,
   #which connects to internet gateway directly
 
+
 # each private subnet has one route table
-resource "aws_route_table" "nat_gateway" {
+resource "aws_route_table" "fargate" {
   count = length(local.private_subnets)
   vpc_id = "${aws_vpc.web_vpc.id}"
   tags = {
-    Name="${local.prefix}-router-nat"
+    Name="${local.prefix}-router-fargate"
   }
 }
 #each route table associated with one nat gateway 
-resource "aws_route" "nat_gateway" {
-  count = length(local.private_subnets)
-  route_table_id = element(aws_route_table.nat_gateway.*.id,count.index)
-  destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id = element(aws_nat_gateway.main.*.id, count.index)
-}
+# resource "aws_route" "nat_gateway" {
+#   count = length(local.private_subnets)
+#   route_table_id = element(aws_route_table.nat_gateway.*.id,count.index)
+#   destination_cidr_block = "0.0.0.0/0"
+#   nat_gateway_id = element(aws_nat_gateway.main.*.id, count.index)
+# }
 #============================================================
 #4.4 below is to associate private subnets to the private route table
 resource "aws_route_table_association" "private_fargate" {
   count = length(local.private_subnets)
   subnet_id      = element(local.private_subnets.*, count.index)
-  route_table_id = element(aws_route_table.nat_gateway.*.id, count.index)
+  route_table_id = element(aws_route_table.fargate.*.id, count.index)
 }
 
 # the above is to create for ECS;
-# now to create 3 route tables for 3 private subnets for rds
-# RDS won't need NAT gateways to access internet,
-# RDS is fully managed by AWS
+# now to create 3 route tables for 3 private subnets for RDS
+# If we choose RDS to be fully managed by AWS,
+# then it won't need NAT gateways to access internet for upgrade
 resource "aws_route_table" "rds" {
   count = length(local.private_database_subnets)
   vpc_id = "${aws_vpc.web_vpc.id}"
@@ -265,16 +271,16 @@ resource "aws_route_table_association" "private_rds" {
 }
 # Note: in development environment,
 # we may need RDS publicly accessible
-# make sure 
+# Then please make sure:  
 # aaa)RDS have a subnet group with public subnets
-# the aws subnets become public when they are associated with route tables which are connected to internet gateway
+# the AWS subnets can be public when they are associated with route tables which are connected to internet gateway
 # we can't apply NAT gateway for 2 reasons. RDS' public access doesnot go in this way. 
-# NAT gateway is one way direction only.  
+# NAT gateway is one way direction only. The traffic can only be initiated from VPC.
 # bbb) RDS security group accept connection from your IP address (check "what is my IP" online)
-# ccc) if the security group is created by us ,not by aws, there is no default outbound rule in the security group
+# ccc) if the security group is created by us ,not by AWS, there is no default outbound rule in the security group
 # which means, the traffic coming from RDS can't reach us, do add or check the outbound rule in SG
 # all traffic from RDS can go anywhere on the internet
-# ddd) modify RDS, and set it as 'public accessible'
+# ddd) modify RDS, and set it as 'public accessible'.
 # eee) download/install a database tool online. build the connection using the parameters in RDS aws console.  
 # The database tools are so many. MySql Workbench is recommended by AWS for MySql database. 
 #===========================================================

@@ -1,22 +1,22 @@
 #1 to create instance target group
 #2 to create SG (security group) for ALB
 #3 to create ALB
-#4 to make sure the sg of EC2 allows request from ALB
+#4 to make sure the Security Group of EC2 allows request from ALB
 #5 #!! be careful when to create cross zone ALB (mapping subnets)
 #====================================================
-#to create the target group for the ELB-->ALB
+#1 to create the target group for the ALB
 resource "aws_lb_target_group" "example" {
   name     = "${local.prefix}-target-group-alb"
   port     = 80
   protocol = "HTTP"
-  vpc_id   = aws_vpc.web-ec2.id
+  vpc_id   = aws_vpc.web-vpc.id
   #=========================================================
   #below comments can be skipped if the whole project won't be broken into smaller sections in future.
   #after you finish all files for all AWS resources in this website project
   #you may break the whole project into smaller sections 
   #like VPC, ALB, ASG... these sections are built in order.
   #in the 'variables' file in every smaller section, you would use locals to 
-  #find the id from the previous section using the filter VPC tag:Name.
+  #find the id from the previous section, like using the filter VPC tag:Name.
   #for example, the vpc_id can only be known after the terraform build it,
   #however, to build ALB in the next section, the vpc_id is needed.
   #fortunately, we are allowed to name the VPC when we build it.
@@ -40,22 +40,22 @@ resource "aws_lb_target_group" "example" {
   }
 }
 
-# Before creating ALB, a SG Specially for ALB should be created
+#2 Before creating ALB, a SG Specially for ALB should be created
 # as we only need the sg to open port 80.
 # The sg for EC2 instance has more inbound rules than port 80,
-# hence, not safe to share SG betwwen ALB and EC2.
+# hence, not safe to share SG between ALB and EC2.
 
 resource "aws_security_group" "lb_sg" {
   name        = "${local.prefix}-securitygroup-alb"
   description = "intended for alb"
-  vpc_id      = aws_vpc.web-ec2.id
+  vpc_id      = aws_vpc.web-vpc.id
   egress {
     from_port        = 0
     to_port          = 0
     protocol         = "-1"
     cidr_blocks      = ["0.0.0.0/0"]
-    #for SG built by AWS, there's default outbound rule
-    #for SG built by AWS users, need to add outbound rule
+    #for default SG built by AWS, there's default outbound rule
+    #for SG built by AWS users/terraform, need to add outbound rule
   }
   tags = {
     "Name"           = "${local.prefix}-securitygroup-alb"
@@ -71,7 +71,7 @@ resource "aws_security_group" "lb_sg" {
     # the file of "ip-ranges.json" can be downloaded from AWS website
     # get all the ips ranges from it and put into ALB's SG is one option. 
     # If the ip ranges from the json file outnumber 60,
-    # we need to divide them into more than one part.
+    # we need to divide them into multiple parts.
     # What's more, the ip ranges change constantly. We need to update the cidr blocks frequently.
     # Another way is to use AWS managed prefix list, AWS gethered all their ip ranges for cloudfront and put
     # them into a list. We only need to apply the list ID to SG, with no worries about Ip canges.
@@ -95,6 +95,7 @@ resource "aws_security_group_rule" "cf" {
     aws_security_group.lb_sg
   ]
 }
+#3 to create ALB
 resource "aws_lb" "example" {
   name                = "${local.prefix}-alb"
   #================================
@@ -140,11 +141,12 @@ resource "aws_lb_listener" "redirect_http_to_https" {
   }
 }
 # in order to create a https listener on the alb
-# you need to create a certificate using AWS certificate manager
+# you need to create a certificate, 
+# you can choose to use AWS certificate manager to issue a certificate,
 # (or you can import cert as well )
 # to create and validate certificate usually need time
-# I would recommend to use AWS console to create/manage the cert
-# below method using terraform is commented out
+# I would recommend to use AWS console to create/manage the cert.
+# below method using terraform is just an example
 #resource "aws_acm_certificate" "here is the resource name" {
   #domain_name       = "here is your domain name"
   #validation_method = "DNS"
@@ -179,6 +181,7 @@ data "aws_acm_certificate" "alb" {
   domain   = "${local.domain_name_alb}"
   statuses = ["ISSUED"]
 }
+# configure https listener
 resource "aws_lb_listener" "https" {
   load_balancer_arn  = aws_lb.example.arn
   port              = "443"
@@ -194,10 +197,9 @@ resource "aws_lb_listener" "https" {
     create_before_destroy = true
   }
 }
-# after the lb is created, a DNS name will be provided
-# through the DNS, we can connect to the website later when 
-# ASG is created successfully with ALB's target group.
-# But this DNS name provided for alb won't be used for internet users
+# after the lb is created, a DNS name will be provided by AWS.
+# through the DNS, we can connect to the website.
+# But we won't let internet users to use this DNS name provided for alb
 # we will use a subdomain (like alb.your.domain.com) and create a record in r53
 resource "aws_route53_record" "alb" {
   zone_id = data.aws_route53_zone.example.zone_id
@@ -211,8 +213,7 @@ resource "aws_route53_record" "alb" {
     evaluate_target_health = true
   }
 }
-# this domain name will be used for cloudfront later
-
+# this domain name will be applied to configure connection to the cloudfront later
 
 # we can add more rules for the listener
 # eg.Weighted Forward action, Fixed-response action
@@ -241,7 +242,7 @@ resource "aws_route53_record" "alb" {
   #}
 #}
 
-# below is to add inbound/outbound rules so that EC2 and ALB
+#4 below is to add inbound/outbound rules so that EC2 and ALB
 # can communicate with each other
 resource "aws_security_group_rule" "alb_to_ec2" {
   type              = "ingress"

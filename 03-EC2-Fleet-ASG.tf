@@ -1,19 +1,38 @@
 locals {
   ami_for_web="ami's id"
+  # this image is created from an existing EC2
+  # where user data is added and port 80 is opened
+  # in practice, we can create EC2 with necessary updates and installations 
+  # make an image from it and use this image in the EC2 Fleet later
   key_pair_name="${local.prefix}-keypair-EC2"
   private_key_file="./${local.key_pair_name}.pem"
   }
 #==================================================
-#before to finally create a ASG
-#(some of the steps finished in other files)
 #1 to create a Key Pair
-    #1.1 to create SSH Key Pair
-    #1.2 to create AWS Key Pair using Public Key
-    #1.3 to Download the Private Key to your laptop
-    #1.4 to validate the Key Pair
-#2 to create target group, ALB, VPC, subnets 
+  #1.1 to create SSH Key Pair
+  #1.2 or to create AWS Key Pair using Public Key
+  #1.3 to Download the Private Key to your laptop
+  #1.4 to validate the Key Pair
+
+#2 before ASG, we need to build:
+  #2.1 Target Group
+  #2.2 Security Group for ALB
+  #2.3 ALB
+  #2.4 allow traffic between Security Groups of ALB and ASG
+    # the above will be created in the ALB.tf file
+
 #3 to create ASG launch template
+  # AMI + instance type
+  # EC2 user data
+  # EBS
+  # SG
+  # SSH Key Pair
+  # IAM Roles for EC2
+  # Network + Subnets
+  # LB 
+
 #4 to create ASG finally
+
 #5 (question) EC2 instances must have a public IP assigned or they fail target group health checks?
   # one solution is to use NAT; 
   # the other one is to launch EC2 based on patched AMI
@@ -21,25 +40,24 @@ locals {
 #==================================================
 
 #1 below is to create the Key Pair for EC2
+  # this key pair can be used to SSH login EC2 as developer
     #1.1 to create SSH Key Pair
-        #1.1.1 to create the pair using terraform
-        #(This is very unsafe and terraform doesnot recommend to use it in 
-        #the production environment. unless the terraform statefile is encrypted)
+      #1.1.1 to create the pair using terraform
+        #(AWS doesnot recommend to use it in the production environment. unless the terraform statefile is encrypted)
 resource "tls_private_key" "dev_key"{
     algorithm = "RSA"
     rsa_bits = 4096
 }
-#algorithm can be RSA, ECDSA or ED25519
-#Note: 
-#You access your public key 
-#by tls_private_key.dev_key.public_key_openssh 
-#So this is what you provide in the public_key field 
-#while creating a key pair using terraform.
+        #algorithm can be RSA, ECDSA or ED25519
+        #Note: 
+        #You access your public key 
+        #by tls_private_key.dev_key.public_key_openssh 
+        #So this is what you provide in the public_key field 
+        #while creating a key pair using terraform.
 
-        #1.1.2 to create the SSH pair outside of terraform
-#using terminal
-#$ssh-keygen -t rsa -b 4096
-#the public key is saved in SSHKeyPair.pub
+      #1.1.2 to create the SSH pair using terminal
+        # $ ssh-keygen -t rsa -b 4096
+        #the public key is saved in SSHKeyPair.pub
 
     #1.2 to Create AWS Key Pair 
 #resource "aws_key_pair" "generated_key" {
@@ -47,13 +65,13 @@ resource "tls_private_key" "dev_key"{
   #public_key = tls_private_key.dev_key.public_key_openssh
   
 #}
-#or, if we use terminal to generate key pair locally
+      #or, if we use terminal to generate key pair locally
 #resource "aws_key_pair" "generated_key2" {
   #key_name   = var.key_pair_name
   #public_key = file("SSHKeyPair.pub")
 #}
 
-  #1.3 to download private key
+    #1.3 to download private key
       #1.3.1 if we use terminal to generate the SSH key pair
       #the private key already saved with the public key in the local file
       #1.3.2 if we use terraform, the private key file is save within project folder
@@ -83,48 +101,24 @@ resource "null_resource" "delete_files" {
   }
 }
 
-  #1.4 to validate the key pair after the EC2 is created
-  # go to EC2 --> Network and Security --> Key Pair
+    #1.4 to validate the key pair after the EC2 is created
+      # go to EC2 --> Network and Security --> Key Pair
 
 #============================================================
-# Notes:!!
+# Notes:
 # The EC2 itself may not open Port 80 initially
 # need user data to install httpd, 
-# install nmap($nmap localhost) to see which ports are open 
+# can also install nmap($nmap localhost) to see which ports are open 
 # if port 80 on EC2 is not open:
 # user can't connect the website using public ip
 # neither can ALB get a response to the health check
-
 #====================================================
-#output "key_pair" {
-  #value = local.key_pair_name
-#}
-#===============================================
 # using below command in the terminal to ssh connect to public EC2
 # $ chmod 400 the/name/of/the/private/key/file (this is extremely important to restrict access to the private key file)
 # $ ssh -i the/path/of/private/key/file ec2-user@public_ip_from_EC2
 #===============================================
-#3 before ASG, we need to build:
-  #3.1 Target Group
-  #3.2 Security Group for ALB
-  #3.3 ALB
-  #3.4 allow traffic between SGs of ALB and ASG
-#==================================================
-#4 to create ASG launch template:
-# AMI + instance type
-# EC2 user data
-# EBS
-# SG
-# SSH Key Pair
-# IAM Roles for EC2
-# Network + Subnets
-# LB 
-#5 to tell ASG the min/max/initial capatity
-
-#==================================================
 #3 below is to create a launch template for t2.micro
-# the instance types that are allowed in this project
-# have been defined in the '01-variables.tf'
+# the instance types that are allowed in this project have been defined in the '01-variables.tf'
 resource "aws_launch_template" "primary" {
   name = "${local.prefix}-template-primary"
   description="Public EC2 template for web"
@@ -136,20 +130,19 @@ resource "aws_launch_template" "primary" {
     security_groups = [local.ec2_security_group_id,local.ec2_security_group_id_ssh]
     delete_on_termination = true
   }
-  #user_data = filebase64("${path.module}/xxxx.sh")
-  #there is user_data already in this AMI, no need to set user data here
-  #if ALB is put in front of EC2, EC2 doesn't need to be assigned a public ip
-  #however EC2 needs to update and install httpd before it can pass the health check from ALB
-  # i prefer not to expose EC2 to public internet unless necessary
-  # i used AWS EC2 Instance Connect to securely access to EC2 with private ip addresses
-  #later on for app development
+
+  # there is user_data already in this AMI, no need to set user data here
+  # if ALB is put in front of EC2, EC2 doesn't need to be assigned a public ip
+  # however EC2 needs to update and install httpd before it can pass the health check from ALB
+  # i prefer not to expose EC2 to public internet unless necessary and 
+  # i can use AWS EC2 Instance Connect to securely access to EC2 with private ip addresses
    
   lifecycle {
     create_before_destroy = true
   }
 }
 #==================================================
-#4 to create ASG
+#4 to create ASG finally
 resource "aws_autoscaling_group" "the name of the resource" {
   name = "${local.prefix}-asg"
   force_delete = true

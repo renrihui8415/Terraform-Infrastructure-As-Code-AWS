@@ -1,4 +1,4 @@
-# the cache invalidation can be done in cloudfront console
+# the Cache Invalidation can be done in Cloudfront console
 # in order to achieve automation, lambda is introduced to complete the task
 #1 to zip .py file for future terraform upload
 #2 to create lambda role
@@ -11,6 +11,7 @@
 #4 to create lambda function
 #5 to setup lambda to publish through SNS
 #6 to allow SQS trigger lambda (this will be done in another file)
+#7 to restrict only SQS created in the previous file can trigger Lambda in this file
 
 locals {
   lambda_name                    = "${local.prefix}-lambda-cache"
@@ -127,7 +128,7 @@ resource "aws_iam_policy" "LambdaS3" {
 })
 }
 
-#3.3 to create policies: lambda --> cloudwatch log
+#3.3 to create policies: Lambda --> Cloudwatch Log
 resource "aws_iam_policy" "LambdaBasicExecutionPolicy" {
     name="${local.prefix}-policy-Lambda-CloudWatch"
     policy=<<EOF
@@ -203,29 +204,6 @@ resource "aws_iam_policy" "LambdaCF" {
 })
 }
 
-# parent lambda to invoke child lambda
-# later the website will use child lambda to do more detailed jobs 
-# below is reserved for next stage
-/*
-resource "aws_iam_policy" "InvokeAnotherLambdaPolicy" {
-  name        = "${local.prefix}-policy-InvokeAnotherLambdaPolicy"
-  path        = "/"
-  description = "Attached to loading function. it allows parent lambda to invoke child function"
-  # Terraform's "jsonencode" function converts a
-  # Terraform expression result to valid JSON syntax.
-  policy = jsonencode({
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Sid": "VisualEditor0",
-            "Effect": "Allow",
-            "Action": "lambda:InvokeFunction",
-            "Resource": aws_lambda_function.child_function.arn
-        }
-    ]
-})
-}
-*/
 resource "aws_iam_role_policy_attachment" "invalidation" {
     for_each = zipmap(
     [0,1,2,3,4],
@@ -235,7 +213,6 @@ resource "aws_iam_role_policy_attachment" "invalidation" {
         tostring(aws_iam_policy.LambdaOnlyPublishSNS.arn), 
         tostring(aws_iam_policy.LambdaInteractSQS.arn),
         tostring(aws_iam_policy.LambdaCF.arn),
-        #tostring(aws_iam_policy.InvokeAnotherLambdaPolicy.arn),
     ])
   
     role       = aws_iam_role.lambda_role.name
@@ -294,4 +271,16 @@ resource "aws_lambda_function_event_invoke_config" "example" {
 
     }
   }
+}
+# 7 to restrict only target SQS can trigger this lambda 
+# Lambda if not deployed in VPC is exposed publicly,
+# we don't wish everyone can trigger out Lambda in the public
+# to use resource-based policy
+resource "aws_lambda_permission" "lambda_allow_sqs" {
+  statement_id  = "AllowTriggerFromS3"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.invalidation.function_name
+  principal     = "sqs.amazonaws.com"
+  source_arn    = aws_sqs_queue.s3_sqs_lambda.arn
+  source_account = local.AccountID
 }

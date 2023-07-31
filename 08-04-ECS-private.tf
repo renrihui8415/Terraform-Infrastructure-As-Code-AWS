@@ -1,13 +1,14 @@
 ###### Private ECS (Fargate) with VPC Endpoints #######
 #============================================================
-#0 to build docker image and push it to ECR (files shared in another repository)
+#0 to build docker image and push it to ECR (files shared in the previous article on Container)
 
-#1 to create VPC with private subnets for ECS Fargate in each AZ (in another file)
+#1 to create VPC with private subnets for ECS Fargate in each AZ (VPC.tf file)
   # for security reason, ECS should be in the private subnets
-  # if ecs needs to pull from ECR, fetch secret from Secrets Manager,
-  # ECR, Secrects Manager, etc, only provide public API 
-  # ECS has to access them using internet gateway (internet traffic + public subnets), 
-  # or NAT gateway (internet traffic + private subnets), or VPC Endpoints (Amazon network + private subnets)
+  # but it is required to connect to public services in this project.
+  # ECS needs to pull Docker Image from ECR, fetch RDS secrets from Secrets Manager.
+  # It has to access them using internet gateway (internet traffic + public subnets), 
+  # or NAT gateway (internet traffic + private subnets), 
+  # or VPC Endpoints (Amazon network + private subnets)
   # the last 2 options will be more secure. What I most concern between them is cost.
   # One NAT gateway equals 4.5 times of VPC Endpoints. If more than 4 Endpoints (interface type) are deployed, I will choose NAT.
 # private subnets--> 2 route tables--> 2 subnets--> 4 interface VPC Endpoints
@@ -26,14 +27,14 @@
     #4.1 to create ECS cluster
     #4.2 to create Task definition
       #4.2.1 to create role 1 --> Task Role
-        # task role is to allow ECS to access other AWS services for tasks(s3, RDS, etc)
+        # task role is to allow ECS to access other AWS services (s3) for tasks
       #4.2.2 to create role 2 --> Execution Role
         # execution role is to allow ECS to access CloudWatch Logs, ECR, Secrets Manager. 
     #4.3 to create ECS task
     #4.4 to create ECS service
 
-#5 to create ALB (in another file)
-#6 to set up Auto Scaling 
+#5 to create ALB (ALB.tf file)
+#6 to set up ECS Auto Scaling 
 
 #============================================================
 #0 As another repo will share the dockerfile, python scripts, below are just general steps
@@ -54,7 +55,7 @@
           "registryId": "accountid",
           "repositoryName": "your_repo_name",
           "repositoryUri": "accountid.dkr.ecr.region.amazonaws.com/your_repo_name",
-          "createdAt": "2023-06-07T23:31:09-04:00",
+          "createdAt": "2021-07-27T23:31:09-04:00",
           "imageTagMutability": "MUTABLE",
           "imageScanningConfiguration": {
               "scanOnPush": true
@@ -74,6 +75,25 @@
   #0.5 to push/pull from ECR    
     $ docker push accountid.dkr.ecr.region.amazonaws.com/your_repo_name   
     $ docker pull accountid.dkr.ecr.region.amazonaws.com/your_repo_name:latest
+
+  0.6 to test docker right after building
+    $ docker container run -it repo_name /bin/bash
+  0.7 to see what's inside the container 
+    $ ls
+  0.8 to find mysql
+    $ pip install mysql
+    the result showed all packages are installed in /usr/local/lib/python3.10
+  0.9 to get mysql path 
+    $ which mysql
+    the result: /usr/bin/mysql
+  0.10 to connect local mysql using command line
+    $ mysql -h host.docker.internal -u user_name -pPass_word -D database_name
+  0.11 to execute sql file using mysql command line 
+    $ mysql -h host.docker.internal -u user_name -pPass_word -D database_name < /init.sql
+
+  0.12 when we use docker run to start a container
+    we can use 'docker ps' to check the container status in a new terminal window
+    and use 'docker logs container_id' to check and debug
 */
 ############################
 ###### Security Group ######
@@ -102,12 +122,63 @@ resource "aws_security_group" "ecs_service" {
     protocol        = "tcp"
     prefix_list_ids = [aws_vpc_endpoint.private-s3.prefix_list_id]
   }
-  
+  # in order to use s3 prefix list
+  # ecs task role needs to be granted the permissions  
   tags = {
     Name="${local.prefix}-sg-ecs-service"
   }
 }
 
+# below is to setup SGs of RDS and ECS so that they can connect to each other
+# RDS will be discussed later
+resource "aws_security_group_rule" "ecs_to_rds" {
+  type              = "ingress"
+  from_port         = 3306
+  to_port           = 3306 
+  protocol          = "tcp"
+  #=====================================================
+  source_security_group_id =aws_security_group.ecs_service.id
+  #=====================================================
+  security_group_id = aws_security_group.rds.id
+  depends_on = [ aws_security_group.rds, aws_security_group.ecs_service]
+}
+resource "aws_security_group_rule" "rds_to_ecs" {
+  type            = "ingress"
+  from_port       = 3306 
+  to_port         = 3306
+  protocol        = "tcp" 
+  #=====================================================
+  source_security_group_id = aws_security_group.rds.id
+  #=====================================================
+  security_group_id = aws_security_group.ecs_service.id
+  depends_on = [ aws_security_group.rds, aws_security_group.ecs_service]
+}
+resource "aws_security_group_rule" "rds_to_ecs2" {
+  type              = "egress"
+  from_port         = 3306
+  to_port           = 3306
+  protocol          = "tcp"
+  #=====================================================
+  source_security_group_id =aws_security_group.ecs_service.id
+  #=====================================================
+  security_group_id = aws_security_group.rds.id
+  depends_on = [ aws_security_group.rds, aws_security_group.ecs_service]
+}
+resource "aws_security_group_rule" "ecs_to_rds2" {
+  type            = "egress"
+  from_port       = 3306
+  to_port         = 3306 
+  protocol        = "tcp"
+  #=====================================================
+  source_security_group_id = aws_security_group.rds.id
+  #=====================================================
+  security_group_id = aws_security_group.ecs_service.id
+  depends_on = [ aws_security_group.rds, aws_security_group.ecs_service]
+}
+
+#############################
+###### VPC Endpoints   ######
+#############################
 # SG for VPC Endpoint
 # we needs ENDpoints to accept requests from ECS on port 443
 resource "aws_security_group" "vpc_endpoints_ecr_secret_logs" {
@@ -127,10 +198,10 @@ resource "aws_security_group_rule" "ecs_to_vpc_endpoints" {
   source_security_group_id = aws_security_group.ecs_service.id
 
   security_group_id = aws_security_group.vpc_endpoints_ecr_secret_logs.id 
+  depends_on = [ aws_security_group.vpc_endpoints_ecr_secret_logs, aws_security_group.ecs_service]
+
 }
-############################
-###### VPC Endpoints  ######
-############################
+
 #3 there are 3 endpoints for ECR: 
 data "aws_route_tables" "ecs" {
   depends_on = [ aws_route_table.example ]
@@ -347,9 +418,7 @@ resource "aws_ecs_cluster" "example" {
 
 # container definition for task
 # >>>>>>>>>>>
-#secrets=[
-        #{"name":"secret_string", "valueFrom":"${local.mysql-creds-arn}"} 
-      #]
+
 locals {
   repo_name                 = local.prefix
   task_image_1              = "${local.AccountID}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.prefix}:latest"
@@ -362,11 +431,14 @@ locals {
     name        = "${local.prefix}-container-1"
     networkMode = "awsvpc"
     environment = [
+      {"name":"task", "value": "rds_init"},
       {"name":"rds_endpoint", "value": "${aws_db_instance.mysql.endpoint}"}, 
-      {"name":"aws_region", "value": "${local.aws_region}"}
+      {"name":"aws_region", "value": "${local.aws_region}"},
+      {"name":"mysql_database", "value": "${aws_db_instance.mysql.db_name}"}
     ] 
     secrets=[
-      {"name":"secret_string", "valueFrom":"${local.mysql-creds-arn}"} 
+      {"name":"secret_string", "valueFrom":"${local.mysql-creds-arn}"} ,
+      {"name":"secret_string_db_maintain", "valueFrom":"${local.mysql-creds-db-maintanance-arn}"}
     ]
     portMappings = [
       {
@@ -443,25 +515,58 @@ resource "aws_iam_policy" "ecs_logging_policy" {
 }
 EOF
 }
-/* >>>>>>>>>>>>
-  resources = [
-    "arn:aws:logs:${local.aws_region}:${local.AccountID}:log-group:${local.ecs_cluster_log_group}:*",
-    "arn:aws:logs:${local.aws_region}:${local.AccountID}:log-group:${local.ecs_cluster_log_group}:log-stream:*"
-  ]
-*/
-# policy for task role --> RDS
-# if we attach AWS managed policy to the role
-# can use terraform to find its arn
-data "aws_iam_policy" "rds" {
-  name = "AmazonRDSFullAccess"
-}
 
+# policy for task role --> RDS
+# AWS doesnot require an IAM policy to connect to RDS 
+# policy for task role --> s3
+resource "aws_iam_policy" "ecs_s3" {
+  name        = "${local.prefix}-policy-ECS-S3"
+  path        = "/"
+  description = "Attached to ecs. it allows ecs to access s3"
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "VisualEditor1",
+        "Effect": "Allow",
+        "Action": [
+            "s3:PutObject",
+            "s3:GetObject",
+            "s3:ListBucket",
+            "s3:DeleteObject",
+            "s3:GetBucketLocation"
+        ],
+        "Resource": [
+            "${var.bucket_arn_for_backup_sourcedata}",
+            "${var.bucket_arn_for_backup_sourcedata}/*"
+        ]
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "ec2:GetManagedPrefixListAssociations",
+          "ec2:GetManagedPrefixListEntries",
+          "ec2:ModifyManagedPrefixList",
+          "ec2:RestoreManagedPrefixListVersion"
+        ],
+        "Resource": "arn:aws:ec2:${local.aws_region}:aws:prefix-list/${aws_vpc_endpoint.private-s3.prefix_list_id}"
+      },
+      {
+        "Effect": "Allow",
+        "Action": "ec2:DescribeManagedPrefixLists",
+        "Resource": "*"
+      }
+    ]
+})
+}      
 resource "aws_iam_role_policy_attachment" "ecs-task-role-policy-attachment" {
   for_each =zipmap(
   [0,1],
   [
-    tostring(data.aws_iam_policy.rds.arn),
-    tostring(aws_iam_policy.ecs_logging_policy.arn)
+    tostring(aws_iam_policy.ecs_logging_policy.arn),
+    tostring(aws_iam_policy.ecs_s3.arn)
   ])
   role       = aws_iam_role.ecs_task_role.name
   policy_arn = each.value
@@ -536,7 +641,8 @@ resource "aws_iam_policy" "SecretsManager" {
             "kms:Decrypt"
           ],
           "Resource": [
-              "${local.mysql-creds-arn}"
+              "${local.mysql-creds-arn}",
+              "${local.mysql-creds-db-maintanance-arn}"
           ]
       }
     ]
@@ -559,7 +665,13 @@ resource "aws_iam_role_policy_attachment" "ecs-task-execution-role-policy-attach
   role       = aws_iam_role.ecs_task_execution_role.name
   policy_arn = each.value
 }
-# task definition 
+################################
+###### task definition #########
+################################
+locals {
+  task_arn_without_version=join(":",["arn:aws:ecs","${local.aws_region}","${local.AccountID}","task-definition/${aws_ecs_task_definition.example.family}"])
+  task_id_for_lambda_policy=join(":",["arn:aws:ecs","${local.aws_region}","${local.AccountID}","task/*"])
+}
 resource "aws_ecs_task_definition" "example" {
   depends_on = [ aws_db_instance.mysql ]
   family = "${local.prefix}-family-ecs-containers"
@@ -588,12 +700,21 @@ resource "aws_ecs_service" "example" {
   #force_new_deployment = true
   #deployment_minimum_healthy_percent = 50
   #deployment_maximum_percent         = 200
-
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
   network_configuration {
     subnets          = local.private_subnets
+    assign_public_ip = false
     security_groups = [
       aws_security_group.ecs_service.id
     ]
+  }
+    # to register ecs with ALB's target group
+  load_balancer {
+    target_group_arn = aws_lb_target_group.alb_ecs.arn
+    container_name   = local.container_definition.0.name
+    container_port   = 80
   }
 }
 

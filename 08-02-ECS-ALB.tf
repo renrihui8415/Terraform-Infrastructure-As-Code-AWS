@@ -11,6 +11,14 @@
   #6.2 to auto scale by Memory
 #============================================================
 #1 below is to create target group for ALB
+# if we wish to register ECS with a ALB's target group ==>
+/*
+After your load balancer and target group are created, 
+you can specify ALB with its target group in the ECS Service. 
+When each task for your service is started, 
+the container and port combination specified in the service definition 
+is registered with your target group and traffic is routed from the load balancer to that container.
+*/
 resource "aws_lb_target_group" "alb_ecs" {
   name        = "${local.prefix}-targetgroup"
   port        = 80
@@ -97,7 +105,7 @@ resource "aws_security_group_rule" "cf_to_alb" {
 # can communicate with each other
 # port 80 is not safe , change to 443 in production environment with certificates for ECS
 # I have concerns that resources in VPC can be attacked from outside.
-# Someone may have different practices and apply port 80 between ALB and ECS.
+# Some may have different practices and apply port 80 between ALB and ECS.
 # It did increase the burdon for ECS if it needs to encrypt/decode data.
 
 resource "aws_security_group_rule" "ecs_to_alb" {
@@ -188,6 +196,14 @@ resource "aws_lb_listener_rule" "only_forward_from_cf" {
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.alb_ecs.arn
+  }
+  # after set up customer header in Cloufront
+  # the same header should be added into listener rule in ALB as well
+  condition {
+    http_header {
+      http_header_name = "${local.cf_custom_header}"
+      values = ["${local.cf_custom_header_value}"]
+    }    
   }
 }
 #============================================================

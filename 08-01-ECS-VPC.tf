@@ -16,13 +16,12 @@
   # ALB will be in public subnets
 
   # an internet gateway makes sure services (ALB) in public subnets can connect to internet,
-  # a nat gateway makes sure service (ECS) in private subnets can connect to internet
-  # in one-way direction
+  # VPC Endpoints, other than NAT Gateway, are applied for ECS to connect other AWS public Services
   #==============================================================
   #3.1 to create internet gateway
   #3.2 to create route table for internet gateway
   #3.3 to associate public subnet(s) to route table
-#4 to create NAT gateway
+#4 to create NAT gateway (optional)
   #4.1 to create EIP(s), these EIP(s) are prepared for resources in private subnets
     # later these EIPs will be associated to NAT gateways
   #4.2 to create NAT gateway in public subnets
@@ -56,8 +55,9 @@ tags = {
 #private subnet 2: xxx.xx.31.0/24
 
 #============================================================
-# to create public subnets for fargate first
-
+# to create public subnets for ALB first
+# Fargate is not supported for all AZs in AWS
+# Public subnets for ALB will be created in those AZs that support Fargate
 resource "aws_subnet" "public_subnets_for_fargate" {
   count = "${length(local.az_for_fargate)}"
   
@@ -89,7 +89,7 @@ resource "aws_subnet" "private_subnets_for_fargate" {
   ]
 }
 #============================================================
-# Up until now, we have created public and private subnets for all target AZs
+# Up until now, we have created public and private subnets for target AZs
 locals {
   # get all subnets 
   public_subnets=concat(aws_subnet.public_subnets_for_fargate[*].id)
@@ -136,63 +136,71 @@ resource "aws_route_table_association" "public-subnets-route-to-internet" {
 }
 #===========================================================
 #4 to create NAT gateway
+# below about NAT Gateway is just for reference
 #4.1 before creating NAT, EIP(s) should be specified
 # each private subnet need one NAT gateway to connect internet
 # each NAT gateway need creating in one public subnet
 
-resource "aws_eip" "nat_gateway" {
-  count=length(local.private_subnets)
-  vpc = true
-  depends_on                = [
-    aws_internet_gateway.igw
-  ]
-}
-output "eip_for_private_subnets" {
-  value = aws_eip.nat_gateway[*].public_ip
-}
-#4.2 below is to create NAT gateway
-resource "aws_nat_gateway" "main" {
-  count=length(local.private_subnets)
-  allocation_id = element(aws_eip.nat_gateway.*.id, count.index)
-  subnet_id     = element(local.public_subnets[*],count.index)
-  #each public subnet has one NAT gateway
+# resource "aws_eip" "nat_gateway" {
+#   count=length(local.private_subnets)
+#   vpc = true
+#   depends_on                = [
+#     aws_internet_gateway.igw
+#   ]
+# }
+# output "eip_for_private_subnets" {
+#   value = aws_eip.nat_gateway[*].public_ip
+# }
+# #4.2 below is to create NAT gateway
+# resource "aws_nat_gateway" "main" {
+#   count=length(local.private_subnets)
+#   allocation_id = element(aws_eip.nat_gateway.*.id, count.index)
+#   subnet_id     = element(local.public_subnets[*],count.index)
+#   #each public subnet has one NAT gateway
 
-  # To ensure proper ordering, it is recommended to add an explicit dependency
-  # on the Internet Gateway for the VPC.
-  depends_on = [aws_internet_gateway.igw]
-  tags = {
-    Name="${local.prefix}-nat"
-  }
-}
+#   # To ensure proper ordering, it is recommended to add an explicit dependency
+#   # on the Internet Gateway for the VPC.
+#   depends_on = [aws_internet_gateway.igw]
+#   tags = {
+#     Name="${local.prefix}-nat"
+#   }
+# }
+# #============================================================
+# #4.3 below is to create a (private) route table for private subnets
+#    # this private route table is to connect nat gateway
+#    # the nat gateway is assigned with a public EIP
+
+#   # it's different from the web route,
+#   # which connects to internet gateway directly
+# 
+# # each private subnet needs one route table
+# resource "aws_route_table" "nat_gateway" {
+#   count = length(local.private_subnets)
+#   vpc_id = "${aws_vpc.web_vpc.id}"
+#   tags = {
+#     Name="${local.prefix}-router-nat"
+#   }
+# }
+# #each route table needs one nat gateway
+# resource "aws_route" "nat_gateway" {
+#   count = length(local.private_subnets)
+#   route_table_id = element(aws_route_table.nat_gateway.*.id,count.index)
+#   destination_cidr_block = "0.0.0.0/0"
+#   nat_gateway_id = element(aws_nat_gateway.main.*.id, count.index)
+# }
 #============================================================
-#4.3 below is to create a (private) route table for private subnets
-   # this private route table is to connect nat gateway
-   # the nat gateway is assigned with a public EIP
-
-  # it's different from the web route,
-  # which connects to internet gateway directly
-
-# each private subnet needs one route table
-resource "aws_route_table" "nat_gateway" {
+#4.4 below is to associate private subnets to the private route table
+resource "aws_route_table" "fargate" {
   count = length(local.private_subnets)
   vpc_id = "${aws_vpc.web_vpc.id}"
   tags = {
-    Name="${local.prefix}-router-nat"
+    Name="${local.prefix}-router-fargate"
   }
 }
-#each route table needs one nat gateway
-resource "aws_route" "nat_gateway" {
-  count = length(local.private_subnets)
-  route_table_id = element(aws_route_table.nat_gateway.*.id,count.index)
-  destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id = element(aws_nat_gateway.main.*.id, count.index)
-}
-#============================================================
-#4.4 below is to associate private subnets to the private route table
 resource "aws_route_table_association" "private" {
   count = length(local.private_subnets)
   subnet_id      = element(local.private_subnets.*, count.index)
-  route_table_id = element(aws_route_table.nat_gateway.*.id, count.index)
+  route_table_id = element(aws_route_table.fargate.*.id, count.index)
 }
 #===========================================================
 #5 below is to create security group for ECS:
@@ -204,41 +212,19 @@ resource "aws_route_table_association" "private" {
 # below is to create SG for ECS
 #======================================================================
 # about the inbound rules for SG:
-# although ALB and ECS are in the same VPC
-# there is possibility that resources can be easily attacked from outside of VPC
+# although ALB and ECS are in the VPC
+# there is possibility that resources can be attacked 
 # if the traffic among ALB and ECS is through port 80.
-# So i decided to use port 443 later for production.
+# So I decided to use port 443 later for production.
 # If port 443 is applied, the coming problem is the CPU usage. 
 # If the requests are in high volumn, the servers are busy with
 # decryption/encryption. I will increase vCPU count to solve the problem.
 # Security always comes at first.
-# I also opened port 22/80 for development. and these two ports only accept requests from 
-# my own IP.
+
 resource "aws_security_group" "ecs_service" {
   name   = "${local.prefix}-sg-ecs-service"
   vpc_id = aws_vpc.web_vpc.id
-  # if we put ECS in private subnet and use NAT to connect to internet
-  # below ingress rules can be skipped
-  /*
-  ingress {
-    description      = "Traffic to ALB"
-    from_port        = 22
-    to_port          = 22
-    protocol         = "tcp"
-    #cidr_blocks      = ["0.0.0.0/0"]
-    cidr_blocks      = [var.myownIP]
-
-  }
-  ingress {
-    description      = "Traffic to ALB"
-    from_port        = 80
-    to_port          = 80
-    protocol         = "tcp"
-    #cidr_blocks      = ["0.0.0.0/0"]
-    cidr_blocks      = [var.myownIP]
-
-  }
-  */
+ 
   egress {
    protocol         = "-1"
    from_port        = 0

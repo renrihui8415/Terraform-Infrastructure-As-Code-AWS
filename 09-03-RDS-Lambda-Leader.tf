@@ -1,19 +1,17 @@
 ##### This file is to create lambda for DATA ETL.
-##### It's different from the file of 06-03-s3-lambda. It creates lambda for Cloudfront Cache Invalidation.
+##### It's different from the file of 06-03-S3-Lambda.tf which creates Lambda for Cloudfront Cache Invalidation.
 
-# the data loading and analysing can be done in MySQL Workbench
+# the data loading and analysing can be done in MySQL 
 # in order to achieve automation, lambda is introduced to complete the task
 #### Method ####
-# for AWS resources in the VPC, Data Warehouse or Database (Redshift, Aurora) provide API
-# lambda doesn't need to go within VPC to connect these databases
-# meanwhile , a public lambda is flexible to connect to nearly all AWS resources
+# for AWS resources in the VPC, Data Warehouse (Redshift) or Database (Aurora) provide API
+# Lambda out of VPC can connect these databases directly 
+# Meanwhile , a public lambda is flexible to connect to nearly all AWS resources
 # But, RDS for MySQL does not provide any API, we have to put lambda within the same VPC 
-# with MySQL and can therefore keep MySQL from being public accessible.
 
-# Lambda within VPC needs endpoint if it fetches from Secrets Manager
-# Leader lambda without VPC is easier to connect to services like Secrets Manager, CloudWatch,
-# but for security reason, VPC endpoint is applied, and only resources in the VPC (child lambda and ECS)
-# can have sensitive info like username and password
+# Public lambda without VPC is easier to connect to Public services like Secrets Manager, ECR, etc
+# But for security reason, Public Lambda (Parent Lambda) is not allowed to access any secret from Secrets Manager. 
+# Most of the detailed work on ETL will be done by Private Lambda (Child Lambda) and ECS in the VPC using VPC endpoint.
 
 #Leader lambda --> (VPC) --> Loading lambda
 #Leader lambda --> (VPC) --> ECS
@@ -24,11 +22,16 @@
 #3 to create IAM policies 
   # the leader role in the 2nd method is simple
   # it accesses AWS resources that only accept internet connections like Secret Manager
-    #3.1 to allow access to Secret Manager
-    #3.2 to allow access to SNS
-    #3.3 to allow access to CloudWatch Logs
+    #3.1 to allow access to CloudWatch Logs
+    #3.2 to allow access to S3
+    #3.3 to allow access to SNS
+    #3.4 to allow access to SQS
+    #3.5 to allow to invoke Child Lambda
+    #3.6 to allow access to ECS
 #4 to create lambda function
 #5 to allow lambda invoke SNS
+#6 to build resource based policy to restrice access:
+  # only target SQS can trigger this lambda 
 
 locals {
   lambda_name_leader                     = "${local.prefix}-lambda-data-mysql-leader"
@@ -40,8 +43,7 @@ locals {
   lambda_runtime_leader                  = "python3.10"
   lambda_timeout_leader                  = 120
   # as we use leader lambda to invoke loading lambda with response type
-  # leader lambda timeout > loading lambda timeout
-  # but, if timeout is long, leader lambda will have trouble invoking loading lambda~
+  # leader lambda timeout = leader lambda timeout + loading lambda timeout
   lambda_concurrent_executions_leader    = -1
   lambda_log_group_leader                = "/aws/lambda/${local.lambda_name_leader}"
   lambda_log_retention_in_days_leader    = 7
@@ -50,7 +52,7 @@ locals {
   # lambda is charged by usage and time
   # setting up with the highest storage and memory for lamdba will decrease the execution time
   # setting up with the lowest storage and memory for lamdba will increase the time
-  # so, the lowest setting won't save money and it cause low performance
+  # so, the lowest setting won't save money and it causes low performance
 }
 
 #1 below is to pack lambda function 
@@ -183,8 +185,8 @@ EOF
 }
 # 3.4 loading lambda be invoked by leader lambda out of VPC
 
-resource "aws_iam_policy" "InvokeAnotherLambdaPolicy" {
-  name        = "${local.prefix}-policy-InvokeAnotherLambdaPolicy"
+resource "aws_iam_policy" "LeaderInvokeAnotherLambdaPolicy" {
+  name        = "${local.prefix}-policy-LeaderInvokeAnotherLambdaPolicy"
   path        = "/"
   description = "Attached to leader function. it allows leader lambda to invoke loading function"
 depends_on = [ aws_lambda_function.data_mysql_loading ]
@@ -258,7 +260,7 @@ resource "aws_iam_role_policy_attachment" "data_mysql_leader" {
     tostring(aws_iam_policy.LambdaS3.arn), 
     tostring(aws_iam_policy.LambdaOnlyPublishSNS.arn),
     tostring(aws_iam_policy.LambdaInteractSQS.arn),
-    tostring(aws_iam_policy.InvokeAnotherLambdaPolicy.arn),
+    tostring(aws_iam_policy.LeaderInvokeAnotherLambdaPolicy.arn),
     tostring(aws_iam_policy.LeaderInvokeECS.arn)
   ])
 
@@ -283,7 +285,6 @@ resource "aws_lambda_function" "data_mysql_leader" {
   source_code_hash = data.archive_file.function_zip_leader.output_base64sha256
   reserved_concurrent_executions = local.lambda_concurrent_executions_leader
   layers           = ["${local.AWSSDKPandas}"]
-  #arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python39:2
   environment {
     variables = {
     aws_region            = "${local.aws_region}"
@@ -294,12 +295,12 @@ resource "aws_lambda_function" "data_mysql_leader" {
     topic_arn_on_failure  = "${local.topic_arn_on_failure}"
     backup_bucket         = var.bucket_for_backup_sourcedata
     loading_arn           = aws_lambda_function.data_mysql_loading.arn
-    ecs_task_arn          = tostring(aws_ecs_task_definition.web_voir.family)
-    ecs_cluster_arn       = tostring(aws_ecs_cluster.web_voir.arn)
-    ecs_service_subnets   = "${join(",", local.public_subnets)}"
-    ##for testing purpose, otherwise to use private subnets
+    reporting_arn         = aws_lambda_function.data_mysql_reporting.arn
+    ecs_task_arn          = tostring(aws_ecs_task_definition.example.family)
+    ecs_cluster_arn       = tostring(aws_ecs_cluster.example.arn)
+    ecs_service_subnets   = "${join(",", local.private_subnets)}"
     ecs_security_groups   =  aws_security_group.ecs_service.id
-    ecs_container_name    =local.container_definition.0.name
+    ecs_container_name    = local.container_definition.0.name
     }
   }
   publish                     = true
@@ -322,3 +323,15 @@ resource "aws_lambda_function_event_invoke_config" "lambda-sns-leader" {
   }
 }
 
+# 6 to restrict only target SQS can trigger this lambda 
+# Lambda if not deployed in VPC is exposed publicly,
+# we don't wish everyone can trigger our Lambda in the public
+# to use resource-based policy
+resource "aws_lambda_permission" "lambda_allow_sqs" {
+  statement_id  = "AllowTriggerFromSQS"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.data_mysql_leader.function_name
+  principal     = "sqs.amazonaws.com"
+  source_arn    = aws_sqs_queue.example.arn
+  source_account = local.AccountID
+}

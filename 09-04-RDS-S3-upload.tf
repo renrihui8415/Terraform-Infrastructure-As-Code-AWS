@@ -19,8 +19,6 @@ locals {
   # later sqs will trigger lambda
 #4 to create GateWay VPC Endpoint for s3
   # lambda in the vpc with private subnet does not have internet connection 
-  # unless using NAT gateway which is not free
-  # there is another way, less expensive, to use Gateway VPC Endpoint 
   # Gateway VPC Endpoint allows traffic among resources in and out of VPC 
   # can go through Amazon Network. 
 

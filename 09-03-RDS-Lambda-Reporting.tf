@@ -10,6 +10,8 @@
     #3.1 to allow to create files in s3
     #3.2 to allow to write in cloudwatch for logs
     #3.3 to allow to publish SNS topics
+    #3.4 to allow access to VPC
+    #3.5 to allow to read specific secret from Secrets Manager
 #4 to create lambda function
 #5 to allow lambda publish SNS
 #6 to create an 'empty' security group for lambda within a VPC
@@ -111,9 +113,6 @@ EOF
 }
 
 # 3.4 lambda to access VPC
-# To access private resources within a VPC, Lambda needs a VPC network endpoint. 
-# Thus, it needs permission to create a Elastic Network Interface (ENI) in the VPC.
-# use terraform to find the current ENIs
 
 locals {
   #subnet_arns=[
@@ -198,10 +197,11 @@ resource "aws_iam_policy" "ReportingLambdaReadsSecret" {
 }
 resource "aws_iam_role_policy_attachment" "data_mysql_reporting" {
   for_each = zipmap(
-  [0,1,2,3],
+  [0,1,2,3,4],
   [
     tostring(aws_iam_policy.LambdaBasicExecutionPolicy_reporting.arn),
-    tostring(aws_iam_policy.ReportingLambdaS3.arn),  
+    tostring(aws_iam_policy.ReportingLambdaS3.arn), 
+    tostring(aws_iam_policy.LambdaOnlyPublishSNS.arn), 
     tostring(aws_iam_policy.ReportingLambdaAccessVPC.arn),
     tostring(aws_iam_policy.ReportingLambdaReadsSecret.arn)
   ])
@@ -304,72 +304,6 @@ resource "aws_security_group_rule" "rds_to_lambda_reporting" {
 
 }
 
-#7 below lambda-s3 gateway can't be combined with ecs s3 gateway
-# as they apply different vpc endpoint types, gateway and interface
-/*
-resource "aws_vpc_endpoint" "s3" {
-  vpc_id = aws_vpc.web_vpc.id
-  service_name = "com.amazonaws.${local.aws_region}.s3"
-  route_table_ids =  data.aws_route_tables.rds.ids 
-  vpc_endpoint_type = "Gateway" 
-  policy = <<POLICY
-  {
-    "Statement": [
-      {
-        "Sid": "uploadbucket",
-        "Effect": "Allow",
-        "Principal": "*",
-        "Action": [
-          "s3:GetObject",
-          "s3:ListBucket",
-          "s3:DeleteObject"
-        ],
-        "Resource": [
-          "${aws_s3_bucket.data_analysis.arn}/*",
-          "${aws_s3_bucket.data_analysis.arn}"
-        ]
-      },
-      {
-        "Sid": "backupbucket",
-        "Effect": "Allow",
-        "Principal": "*",
-        "Action": [
-          "s3:PutObject",
-          "s3:GetObject",
-          "s3:ListBucket",
-          "s3:DeleteObject"
-        ],
-        "Resource": [
-          "${var.bucket_arn_for_backup_sourcedata}",
-          "${var.bucket_arn_for_backup_sourcedata}/*"
-        ]
-      }
-    ]
-  }
-  POLICY
-  tags = {
-    Name="${local.prefix}-vpv-endpoint-gateway-s3"
-  }
-}
-*/
-# the above policy is attached to VPC, restricting VPC
-# when it accesses S3;
-
-
-# 7.2 below is to create vpc endpoint for secrets manager
-#7.2.1 to create SG for endpoint first
-# we needs ENDpoints to accept requests from resources in vpc on port 443
-/*
-resource "aws_security_group" "vpc_endpoints_ecr_secret_logs" {
-  name        = "${local.prefix}-sg-vpc-endpoints-ecr-secretsmanager-cloudwatchlogs"
-  description = "VPC endponts must accept requests from ECS"
-  vpc_id      = aws_vpc.web_vpc.id
-
-  tags = {
-    Name = "${local.prefix}-sg-vpc-endpoints-ecr-secretsmanager-cloudwatchlogs"
-  }
-}
-*/
 resource "aws_security_group_rule" "reporting_lambda_to_vpc_endpoints" {
   type            = "ingress"
   from_port       = 443
@@ -381,34 +315,4 @@ resource "aws_security_group_rule" "reporting_lambda_to_vpc_endpoints" {
   security_group_id = aws_security_group.vpc_endpoints_ecr_secret_logs.id 
 }
 
-#7.2.2 below is to create vpc endpoint for secrets manager
-/*
-resource "aws_vpc_endpoint" "secretsmanager_lambda" {
-  vpc_id            = aws_vpc.web_vpc.id
-  service_name      = "com.amazonaws.${local.aws_region}.secretsmanager"
-  vpc_endpoint_type = "Interface"
-  subnet_ids = aws_db_subnet_group.rds.subnet_ids
-  security_group_ids = [aws_security_group.vpc_endpoints_ecr_secret_logs.id]
-  private_dns_enabled = true
-
-  policy = <<POLICY
-  {
-    "Statement": [
-      {
-        "Principal": "*",
-        "Action": "secretsmanager:GetSecretValue",
-        "Effect": "Allow",
-        "Resource": [
-          "${local.mysql-creds-db-maintanance-arn}"
-        ]
-      }
-    ]
-  }  
-POLICY
-
-  tags = {
-    Name="${local.prefix}-vpc-endpoint-interface-secret"
-  }
-}
-*/
-
+#7 Reporting Lambda applies the same VPC Endpoints with Loading Lambda

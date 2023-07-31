@@ -4,12 +4,11 @@
 # certificate/hosted zone change accordingly.
 # it's not friendly for testing as the process takes time...
 
-
 # Route53 provides DNS SERVICE
 # route 53 will translate your domain name --> ip: like 54.3.18.30
 # this ip will be returned from route 53 to browsers
 # browers use this ip to connect to web server
-# AWS provides alias, which means Route 53 forward request to ALB in this project
+# AWS provides alias, which means Route 53 can forward request to ALB's domain name 
 
 #1 to register a domain (with AWS Route 53 or not)
 #2 to setup Hosted Zone @ Route53
@@ -17,7 +16,6 @@
 # !! if registered domain with R53, need to update domain ns with new hosted zone
 #4 to test the domain name in the terminal
 #5 to create a record in the hosted zone
-
 #=============================================================
 
 #2 to Create Hosted Zone (public)
@@ -46,7 +44,7 @@ resource "aws_route53domains_registered_domain" "update_domain_ns" {
     }
   }
 }
-
+#=============================================================
 #4 to test the domain name 
 # $ dig your/domain/name @8.8.8.8
 #=============================================================

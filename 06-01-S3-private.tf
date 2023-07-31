@@ -6,7 +6,6 @@ locals {
   #if we don't define the content type for the state files,
   #AWS will automatically assign for us
   #the files can't be treated as state files for website
-  #it's probably that .ipg files won't be displayed in webpage
 }
 
 # since cloudfront is used in front of S3
@@ -30,7 +29,6 @@ locals {
 #5 to configure s3 to trigger SQS
   # later sqs will trigger lambda,
   # once a new file uploads to s3, lambda will invalidate the file in cache
-
 #============================================================
 #1 below is to create s3 for storing files like index.html
 resource "aws_s3_bucket" "example" {

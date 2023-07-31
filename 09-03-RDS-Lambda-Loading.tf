@@ -1,19 +1,17 @@
 ##### This file is to create lambda for DATA ETL.
 ##### It's different from the file of 06-03-s3-lambda. It creates lambda for Cloudfront Cache Invalidation.
 
-# the data loading and analysing can be done in MySQL Workbench
+# the data loading and analysing can be done in MySQL 
 # in order to achieve automation, lambda is introduced to complete the task
 #### Method ####
-# for AWS resources in the VPC, Data Warehouse or Database (Redshift, Aurora) provide API
-# lambda doesn't need to go within VPC to connect these databases
-# meanwhile , a public lambda is flexible to connect to nearly all AWS resources
+# for AWS resources in the VPC, Data Warehouse (Redshift) or Database (Aurora) provide API
+# Lambda out of VPC can connect these databases directly 
+# Meanwhile , a public lambda is flexible to connect to nearly all AWS resources
 # But, RDS for MySQL does not provide any API, we have to put lambda within the same VPC 
-# with MySQL and can therefore keep MySQL from being public accessible.
 
-# Lambda within VPC needs endpoint if it fetches from Secrets Manager
-# Leader lambda without VPC is easier to connect to services like Secrets Manager, CloudWatch,
-# but for security reason, VPC endpoint is applied, and only resources in the VPC (child lambda and ECS)
-# can have sensitive info like username and password
+# Public lambda without VPC is easier to connect to Public services like Secrets Manager, ECR, etc
+# But for security reason, Public Lambda (Parent Lambda) is not allowed to access any secret from Secrets Manager. 
+# Most of the detailed work on ETL will be done by Private Lambda (Child Lambda) and ECS in the VPC using VPC endpoint.
 
 #Leader lambda --> (VPC) --> Loading lambda
 #Leader lambda --> (VPC) --> ECS
@@ -22,10 +20,11 @@
 #1 to zip .py file for future terraform upload
 #2 to create lambda role
 #3 to create IAM policies
-    #3.1 to allow connection to/from SQS
+    #3.1 to allow access to VPC
     #3.2 to allow to list/get files in s3
     #3.3 to allow to write in cloudwatch for logs
     #3.4 to allow to publish SNS topics
+    #3.5 to allow to read specific secret from Secrets Manager
 #4 to create lambda function
 #5 to allow lambda invoke SNS
 #6 to create an 'empty' security group for lambda within a VPC
@@ -34,7 +33,7 @@
   #7.1 to create gateway s3 endpoint
   #7.2 to create interface secrets endpoint
     #7.2.1 to create SG for endpoint and allows Lambda <--> Endpoint 
-    #7.2.2 to create interface secrets endpoint
+    #7.2.2 to create interface secrets endpoint 
 locals {
   lambda_name_loading                    = "${local.prefix}-lambda-data-mysql-loading"
   lambda_role_loading                    = "${local.prefix}-role-lambda-data-mysql-loading"
@@ -134,10 +133,6 @@ resource "aws_iam_policy" "LambdaOnlyPublishSNS" {
   })
 }
 # 3.3 lambda to access VPC
-# To access private resources within a VPC, Lambda needs a VPC network endpoint. 
-# Thus, it needs permission to create a Elastic Network Interface (ENI) in your VPC.
-# use terraform to find the current ENIs
-
 locals {
   subnet_arns=[
     for subnet_id in aws_db_subnet_group.rds.subnet_ids:
@@ -197,7 +192,7 @@ resource "aws_iam_policy" "AccessVPC" {
 # important! please double check if lambda can only read the credentials we wish it to read
 # do not assign lambda more permissions than its job
 # otherwise lambda can read all secrets in aws account... 
-resource "aws_iam_policy" "LambdaReadsSecret" {
+resource "aws_iam_policy" "LoadingLambdaReadsSecret" {
   name        = "${local.prefix}-policy-LambdaReadsSecret"
   path        = "/"
   description = "Attached to function. it allows lambda to get secret"
@@ -227,7 +222,7 @@ resource "aws_iam_role_policy_attachment" "data_mysql_loading" {
     tostring(aws_iam_policy.LambdaS3.arn), 
     tostring(aws_iam_policy.LambdaOnlyPublishSNS.arn), 
     tostring(aws_iam_policy.AccessVPC.arn),
-    tostring(aws_iam_policy.LambdaReadsSecret.arn)
+    tostring(aws_iam_policy.LoadingLambdaReadsSecret.arn)
   ])
 
   role       = aws_iam_role.role_lambda_data_mysql_loading.name
@@ -263,14 +258,12 @@ resource "aws_lambda_function" "data_mysql_loading" {
     mysql_host            = aws_db_instance.mysql.endpoint
     backup_bucket         = var.bucket_for_backup_sourcedata
     secret_name           = data.aws_secretsmanager_secret_version.mysql-creds-db-maintanance.secret_id
-
     }
   }
   vpc_config {
     security_group_ids = [aws_security_group.lambda_in_vpc.id]
     subnet_ids = aws_db_subnet_group.rds.subnet_ids
   }
-  # lambda in the VPC needs 'vpc_config' settings
   publish                     = true
   tags = {
       Name                    = "${local.lambda_name_loading}"
@@ -340,15 +333,11 @@ data "aws_route_tables" "rds" {
   }
 }
 
-#7 below lambda-s3 gateway can't be combined with ecs s3 gateway
-# they may need to connect different s3 buckets and they reside in different subnets as well
-# using one s3 gateway is too permissive
+#7 create gateway s3 endpoint
 resource "aws_vpc_endpoint" "s3" {
   vpc_id = aws_vpc.web_vpc.id
   service_name = "com.amazonaws.${local.aws_region}.s3"
   route_table_ids =  data.aws_route_tables.rds.ids 
-  # if lambda use the same subnets with RDS
-  # the route tables are the same for both as well.
   vpc_endpoint_type = "Gateway" 
   # below policy is the same as policy for loading lambda 
   # just copy/paste from loading lambda
@@ -395,7 +384,6 @@ resource "aws_vpc_endpoint" "s3" {
 
 # the above policy is attached to VPC, restricting VPC
 # when it accesses S3;
-
 
 # 7.2 below is to create vpc endpoint for secrets manager
 #7.2.1 to create SG for endpoint first
