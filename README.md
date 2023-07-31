@@ -16,7 +16,7 @@ Terraform helps to achieve a fully automated process by uploading and building w
     5. Java-html-Project-Website (Frontend Website)
 
 Specifically in this repo:
-The website is built with AWS resources (VPC, ALB, Route53, ASG, S3, RDS, ESC, Cloudfront, ACM, WAF, SQS, SNS, CloudWatch, IAM...).
+The website is built with AWS resources (VPC, ALB, Route53, ASG, S3, RDS, ECS, Lambda, EC2, Cloudfront, ACM, WAF, SQS, SNS, CloudWatch, IAM...).
 
 
 ## Requirements
